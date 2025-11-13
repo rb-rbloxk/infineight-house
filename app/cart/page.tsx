@@ -31,6 +31,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
+import { trackBeginCheckout, trackRemoveFromCart } from '@/lib/analytics';
 
 interface CartItem {
   id: string;
@@ -340,6 +341,22 @@ function CartPageContent() {
     };
     
     sessionStorage.setItem('checkoutData', JSON.stringify(checkoutData));
+    
+    // Track begin checkout event
+    const itemsForTracking = cartItems
+      .filter(item => item.product)
+      .map(item => ({
+        id: item.product.id,
+        name: item.product.name,
+        category: item.product.category,
+        price: parseFloat(item.product.base_price.toString()),
+        quantity: item.quantity,
+        currency: 'INR',
+      }));
+    
+    if (itemsForTracking.length > 0) {
+      trackBeginCheckout(itemsForTracking);
+    }
     
     // Navigate to checkout page using window.location
     window.location.href = '/checkout';

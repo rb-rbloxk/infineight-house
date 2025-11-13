@@ -83,7 +83,7 @@ export default function ResetPasswordPage() {
                   height={60}
                   className="mb-2"
                 />
-                <p className="text-sm text-muted-foreground">Wear Your Story. Gift a Moment.</p>
+                <p className="text-sm text-muted-foreground">Wear moments, Beyond time!</p>
               </div>
               <div className="w-16 h-16 mx-auto bg-green-500/10 rounded-full flex items-center justify-center mb-4">
                 <CheckCircle className="w-8 h-8 text-green-500" />

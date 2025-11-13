@@ -7,10 +7,11 @@ import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
 import { Toaster } from '@/components/ui/sonner';
 import { ConditionalLayout } from '@/components/ConditionalLayout';
+import { GoogleAnalytics } from '@/components/GoogleAnalytics';
 
 export const metadata: Metadata = {
   title: 'Infineight - Custom T-Shirts & Corporate Gifting',
-  description: 'Wear Your Story. Gift a Moment. Customizable t-shirts, hoodies, and corporate gifting solutions.',
+  description: 'Wear moments, Beyond time. Customizable t-shirts, hoodies, and corporate gifting solutions.',
   icons: {
     icon: '/favicon.ico',
     shortcut: '/favicon.png',
@@ -26,6 +27,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="font-sans">
+        <GoogleAnalytics />
         <AuthProvider>
           <ConditionalLayout>
             {children}

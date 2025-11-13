@@ -90,7 +90,7 @@ export default function SignupPage() {
                 height={60}
                 className="mb-2"
               />
-              <p className="text-sm text-muted-foreground">Wear Your Story. Gift a Moment.</p>
+              <p className="text-sm text-muted-foreground">Wear moments, Beyond time!</p>
             </div>
             <CardTitle className="text-3xl text-foreground">Create Account</CardTitle>
             <CardDescription className="text-muted-foreground">Join us today</CardDescription>

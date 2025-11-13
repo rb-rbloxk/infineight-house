@@ -54,7 +54,7 @@ export default function ForgotPasswordPage() {
                 height={60}
                 className="mb-2"
               />
-              <p className="text-sm text-muted-foreground">Wear Your Story. Gift a Moment.</p>
+              <p className="text-sm text-muted-foreground">Wear moments, Beyond time!</p>
             </div>
             <CardTitle className="text-3xl text-foreground">Forgot Password?</CardTitle>
             <CardDescription className="text-muted-foreground">

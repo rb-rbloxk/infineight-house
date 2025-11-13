@@ -5,7 +5,7 @@ import { Toaster } from '@/components/ui/sonner';
 
 export const metadata: Metadata = {
   title: 'Infineight - Custom T-Shirts & Corporate Gifting',
-  description: 'Wear Your Story. Gift a Moment. Customizable t-shirts, hoodies, and corporate gifting solutions.',
+  description: 'Wear moments, Beyond time!. Customizable t-shirts, hoodies, and corporate gifting solutions.',
 };
 
 export default function AuthLayout({

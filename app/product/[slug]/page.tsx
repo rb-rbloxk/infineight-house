@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Loader2, Palette, ShoppingCart, Check, Heart, Star, Shield, Truck, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
+import { ProductStructuredData } from '@/components/ProductStructuredData';
+import { trackProductView, trackAddToCart } from '@/lib/analytics';
 
 export default function ProductPage() {
   return <ProductPageContent />;
@@ -53,6 +55,15 @@ function ProductPageContent() {
       if (data.available_colors.length > 0) {
         setSelectedColor(data.available_colors[0]);
       }
+      
+      // Track product view
+      trackProductView({
+        id: data.id,
+        name: data.name,
+        category: data.category,
+        price: parseFloat(data.base_price.toString()),
+        currency: 'INR',
+      });
     }
     setLoading(false);
   };
@@ -151,6 +162,16 @@ function ProductPageContent() {
       toast.error('Failed to add to cart');
     } else {
       toast.success('Added to cart successfully!');
+      
+      // Track add to cart event
+      trackAddToCart({
+        id: product!.id,
+        name: product!.name,
+        category: product!.category,
+        price: parseFloat(product!.base_price.toString()),
+        quantity,
+        currency: 'INR',
+      });
     }
 
     setAdding(false);
@@ -194,6 +215,7 @@ function ProductPageContent() {
 
   return (
     <div className="min-h-screen bg-background">
+      <ProductStructuredData product={product} />
       {/* Breadcrumb */}
       <div className="border-b border-border bg-card">
         <div className="container mx-auto px-4 py-3">

@@ -14,8 +14,8 @@ export default function Home() {
   
   const heroSlides = [
     {
-      title: "Wear Your Story.",
-      subtitle: "Gift a Moment.",
+      title: "Wear moments, Beyond time!",
+      subtitle: "",
       description: "Create custom t-shirts, hoodies, and corporate gifts that tell your unique story. Design, preview, and order in minutes.",
       image: "👕",
       bgColor: "from-blue-500 to-purple-600"

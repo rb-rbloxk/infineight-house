@@ -18,7 +18,7 @@ export function Footer() {
               />
             </div>
             <p className="text-sm text-muted-foreground">
-              Wear Your Story. Gift a Moment.
+              Wear moments, Beyond time!
             </p>
           </div>
 

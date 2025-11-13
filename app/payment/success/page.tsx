@@ -8,6 +8,7 @@ import { CheckCircle, Package, Home, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
+import { trackPurchase } from '@/lib/analytics';
 
 export default function PaymentSuccessPage() {
   const router = useRouter();
@@ -37,6 +38,36 @@ export default function PaymentSuccessPage() {
         if (error) throw error;
 
         setOrderDetails(order);
+
+        // Track purchase event
+        if (order.order_items && order.order_items.length > 0) {
+          // Fetch product details for order items
+          const productIds = order.order_items.map((item: any) => item.product_id);
+          const { data: products } = await supabase
+            .from('products')
+            .select('id, name, category, base_price')
+            .in('id', productIds);
+
+          if (products) {
+            const itemsForTracking = order.order_items.map((item: any) => {
+              const product = products.find((p: any) => p.id === item.product_id);
+              return {
+                id: item.product_id,
+                name: product?.name || 'Unknown Product',
+                category: product?.category || 'Unknown',
+                price: parseFloat(item.unit_price?.toString() || '0'),
+                quantity: item.quantity,
+              };
+            });
+
+            trackPurchase({
+              transaction_id: order.order_number,
+              value: parseFloat(order.total_amount?.toString() || '0'),
+              currency: 'INR',
+              items: itemsForTracking,
+            });
+          }
+        }
 
         // Clear cart items from supabase (if not already cleared)
         if (order.user_id) {
