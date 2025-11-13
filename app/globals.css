@@ -1,0 +1,100 @@
+@import url('https://fonts.googleapis.com/css2?family=Lexend:wght@100..900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Light background #f6f4f0 */
+    --background: 40 20% 95%; /* #f6f4f0 */
+    --foreground: 0 0% 13%; /* #222222 */
+    --card: 40 20% 97%; /* Slightly lighter than background for cards */
+    --card-foreground: 0 0% 13%;
+    --popover: 40 20% 97%; /* Same as card */
+    --popover-foreground: 0 0% 13%;
+    --primary: 45 100% 70%; /* Adjusted cream for better contrast on light bg */
+    --primary-foreground: 0 0% 13%;
+    --secondary: 40 15% 90%; /* Slightly darker than background */
+    --secondary-foreground: 0 0% 13%;
+    --muted: 40 10% 92%; /* Subtle muted background */
+    --muted-foreground: 0 0% 45%; /* Muted dark gray text */
+    --accent: 45 100% 85%; /* Light accent color */
+    --accent-foreground: 0 0% 13%;
+    --destructive: 0 84.2% 60.2%; /* Red for errors */
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 80%; /* Light gray borders */
+    --input: 40 20% 98%; /* Very light input background */
+    --ring: 45 100% 70%; /* Focus ring matches primary */
+    --chart-1: 12 76% 61%; /* Coral red */
+    --chart-2: 173 58% 39%; /* Teal */
+    --chart-3: 197 37% 24%; /* Dark blue */
+    --chart-4: 43 74% 66%; /* Yellow */
+    --chart-5: 27 87% 67%; /* Orange */
+    --radius: 0.5rem;
+  }
+  .dark {
+    /* Same as light theme for consistency */
+    --background: 40 20% 95%; /* #f6f4f0 */
+    --foreground: 0 0% 13%; /* #222222 */
+    --card: 40 20% 97%; /* Slightly lighter than background for cards */
+    --card-foreground: 0 0% 13%;
+    --popover: 40 20% 97%; /* Same as card */
+    --popover-foreground: 0 0% 13%;
+    --primary: 45 100% 70%; /* Adjusted cream for better contrast on light bg */
+    --primary-foreground: 0 0% 13%;
+    --secondary: 40 15% 90%; /* Slightly darker than background */
+    --secondary-foreground: 0 0% 13%;
+    --muted: 40 10% 92%; /* Subtle muted background */
+    --muted-foreground: 0 0% 45%; /* Muted dark gray text */
+    --accent: 45 100% 85%; /* Light accent color */
+    --accent-foreground: 0 0% 13%;
+    --destructive: 0 84.2% 60.2%; /* Red for errors */
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 80%; /* Light gray borders */
+    --input: 40 20% 98%; /* Very light input background */
+    --ring: 45 100% 70%; /* Focus ring matches primary */
+    --chart-1: 12 76% 61%; /* Coral red */
+    --chart-2: 173 58% 39%; /* Teal */
+    --chart-3: 197 37% 24%; /* Dark blue */
+    --chart-4: 43 74% 66%; /* Yellow */
+    --chart-5: 27 87% 67%; /* Orange */
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@layer utilities {
+  .animate-scroll {
+    animation: scroll 30s linear infinite;
+  }
+  
+  @keyframes scroll {
+    0% {
+      transform: translateX(0);
+    }
+    100% {
+      transform: translateX(-50%);
+    }
+  }
+  
+  /* Subtle shadow utility */
+  .shadow-subtle {
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+  }
+  
+  .shadow-subtle-md {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  }
+  
+  .shadow-subtle-lg {
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  }
+}
