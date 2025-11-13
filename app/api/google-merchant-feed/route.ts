@@ -108,7 +108,7 @@ export async function GET() {
       const productUrl = `${siteUrl}/product/${product.slug}`;
       const imageUrl = getFullImageUrl(product.base_image_url);
       const additionalImages = product.image_urls && product.image_urls.length > 1
-        ? product.image_urls.slice(1).map(img => getFullImageUrl(img)).join(',')
+        ? product.image_urls.slice(1).map((img: string) => getFullImageUrl(img)).join(',')
         : '';
       
       const price = parseFloat(product.base_price.toString()).toFixed(2);

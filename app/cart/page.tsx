@@ -346,10 +346,10 @@ function CartPageContent() {
     const itemsForTracking = cartItems
       .filter(item => item.product)
       .map(item => ({
-        id: item.product.id,
-        name: item.product.name,
-        category: item.product.category,
-        price: parseFloat(item.product.base_price.toString()),
+        id: item.product!.id,
+        name: item.product!.name,
+        category: item.product!.category,
+        price: parseFloat(item.product!.base_price.toString()),
         quantity: item.quantity,
         currency: 'INR',
       }));
