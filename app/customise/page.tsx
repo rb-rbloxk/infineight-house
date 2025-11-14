@@ -533,10 +533,16 @@ function CustomizePageContent() {
   };
 
   const captureCanvasAsImage = async (format: 'png' | 'pdf'): Promise<Blob | null> => {
-    if (!previewContainerRef.current) return null;
+    if (!previewContainerRef.current) {
+      console.warn('Preview container ref not available');
+      return null;
+    }
 
     try {
       const container = previewContainerRef.current;
+      
+      // Wait a bit for any animations to settle
+      await new Promise(resolve => setTimeout(resolve, 100));
       
       // Store original styles to restore later
       const elementsToHide: Array<{ element: HTMLElement; originalDisplay: string; originalOpacity: string }> = [];
@@ -544,6 +550,7 @@ function CustomizePageContent() {
       // Hide resize handles and selection indicators temporarily
       const resizeHandles = container.querySelectorAll('[class*="cursor-nw-resize"], [class*="cursor-ne-resize"], [class*="cursor-sw-resize"], [class*="cursor-se-resize"], [class*="cursor-n-resize"], [class*="cursor-s-resize"], [class*="cursor-e-resize"], [class*="cursor-w-resize"]');
       const sizeDisplays = container.querySelectorAll('[class*="absolute"][class*="-top-8"]');
+      const badges = container.querySelectorAll('[class*="Badge"]');
       
       // Hide UI elements
       resizeHandles.forEach((el) => {
@@ -566,15 +573,31 @@ function CustomizePageContent() {
         htmlEl.style.display = 'none';
       });
 
-      // Capture the canvas
+      badges.forEach((el) => {
+        const htmlEl = el as HTMLElement;
+        if (htmlEl.textContent?.includes('View') || htmlEl.textContent?.includes('Element')) {
+          elementsToHide.push({
+            element: htmlEl,
+            originalDisplay: htmlEl.style.display,
+            originalOpacity: htmlEl.style.opacity
+          });
+          htmlEl.style.display = 'none';
+        }
+      });
+
+      // Capture the canvas with optimized settings
       const canvas = await html2canvas(container, {
         backgroundColor: '#ffffff',
-        scale: 2,
+        scale: 1.5, // Reduced from 2 for faster processing
         logging: false,
         useCORS: true,
-        allowTaint: false,
+        allowTaint: true, // Changed to true to allow cross-origin images
         width: container.offsetWidth,
         height: container.offsetHeight,
+        windowWidth: container.scrollWidth,
+        windowHeight: container.scrollHeight,
+        removeContainer: false,
+        imageTimeout: 5000, // 5 second timeout for images
       });
 
       // Restore UI elements
@@ -586,12 +609,17 @@ function CustomizePageContent() {
       if (format === 'png') {
         return new Promise((resolve) => {
           canvas.toBlob((blob) => {
-            resolve(blob);
-          }, 'image/png', 0.95);
+            if (!blob) {
+              console.error('Failed to convert canvas to blob');
+              resolve(null);
+            } else {
+              resolve(blob);
+            }
+          }, 'image/png', 0.9); // Slightly lower quality for faster processing
         });
       } else {
         // Convert to PDF
-        const imgData = canvas.toDataURL('image/png', 0.95);
+        const imgData = canvas.toDataURL('image/png', 0.9);
         const pdf = new jsPDF({
           orientation: canvas.width > canvas.height ? 'landscape' : 'portrait',
           unit: 'px',
@@ -694,39 +722,68 @@ function CustomizePageContent() {
         return;
       }
 
-      // 2. Capture and upload images
+      // 2. Capture and upload images (non-blocking - continue even if it fails)
       toast.loading('Capturing design images...', { id: 'capturing' });
-
-      const pngBlob = await captureCanvasAsImage('png');
-      const pdfBlob = await captureCanvasAsImage('pdf');
 
       let pngUrl: string | null = null;
       let pdfUrl: string | null = null;
 
-      if (pngBlob) {
-        pngUrl = await uploadDesignImage(pngBlob, design.id, 'png');
-      }
+      try {
+        // Capture PNG with timeout
+        const pngPromise = captureCanvasAsImage('png');
+        const pngTimeout = new Promise<null>((resolve) => 
+          setTimeout(() => resolve(null), 10000) // 10 second timeout
+        );
+        const pngBlob = await Promise.race([pngPromise, pngTimeout]);
 
-      if (pdfBlob) {
-        pdfUrl = await uploadDesignImage(pdfBlob, design.id, 'pdf');
-      }
+        if (pngBlob) {
+          try {
+            pngUrl = await uploadDesignImage(pngBlob, design.id, 'png');
+          } catch (uploadError) {
+            console.error('Error uploading PNG:', uploadError);
+          }
+        }
 
-      // 3. Update design with image URLs
-      const { error: updateError } = await supabase
-        .from('designs')
-        .update({
-          png_image_url: pngUrl,
-          pdf_image_url: pdfUrl,
-          preview_url: pngUrl // Use PNG as preview
-        })
-        .eq('id', design.id);
+        // Capture PDF with timeout
+        const pdfPromise = captureCanvasAsImage('pdf');
+        const pdfTimeout = new Promise<null>((resolve) => 
+          setTimeout(() => resolve(null), 10000) // 10 second timeout
+        );
+        const pdfBlob = await Promise.race([pdfPromise, pdfTimeout]);
 
-      if (updateError) {
-        console.error('Error updating design with images:', updateError);
-        // Don't fail the whole process if image upload fails
-        toast.warning('Design saved but image upload failed', { id: 'capturing' });
-      } else {
-        toast.success('Design images captured successfully!', { id: 'capturing' });
+        if (pdfBlob) {
+          try {
+            pdfUrl = await uploadDesignImage(pdfBlob, design.id, 'pdf');
+          } catch (uploadError) {
+            console.error('Error uploading PDF:', uploadError);
+          }
+        }
+
+        // Update design with image URLs (only if we have at least one)
+        if (pngUrl || pdfUrl) {
+          const { error: updateError } = await supabase
+            .from('designs')
+            .update({
+              png_image_url: pngUrl,
+              pdf_image_url: pdfUrl,
+              preview_url: pngUrl || pdfUrl // Use PNG as preview, or PDF if PNG not available
+            })
+            .eq('id', design.id);
+
+          if (updateError) {
+            console.error('Error updating design with images:', updateError);
+          }
+        }
+
+        if (pngUrl || pdfUrl) {
+          toast.success('Design saved with images!', { id: 'capturing' });
+        } else {
+          toast.warning('Design saved, but image capture timed out or failed', { id: 'capturing' });
+        }
+      } catch (error) {
+        console.error('Error in image capture process:', error);
+        toast.warning('Design saved, but image capture failed', { id: 'capturing' });
+        // Continue with the process even if image capture fails
       }
 
       // 4. Add to cart with design_id
