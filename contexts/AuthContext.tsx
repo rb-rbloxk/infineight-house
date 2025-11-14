@@ -43,8 +43,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Profile doesn't exist, create one
       const { data: userData } = await supabase.auth.getUser();
       if (userData.user) {
-        // Get phone from user metadata or phone field
-        const phone = userData.user.phone || userData.user.user_metadata?.phone || null;
+        // Only use email for authentication - phone is optional profile data only
+        const phone = userData.user.user_metadata?.phone || null;
         const email = userData.user.email || null;
         const fullName = userData.user.user_metadata?.full_name || null;
 
@@ -161,8 +161,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 
   const signIn = async (email: string, password: string) => {
+    // Email-only authentication - no phone login support
+    if (!email || !email.includes('@')) {
+      throw new Error('Please enter a valid email address.');
+    }
+
     const { data, error } = await supabase.auth.signInWithPassword({
-      email,
+      email: email.toLowerCase().trim(),
       password,
     });
 
@@ -170,6 +175,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Provide user-friendly error messages
       if (error.message.includes('Invalid login credentials')) {
         throw new Error('Invalid email or password. Please try again.');
+      }
+      if (error.message.includes('phone')) {
+        throw new Error('Phone number login is not supported. Please use your email address.');
       }
       throw error;
     }

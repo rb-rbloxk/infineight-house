@@ -6,7 +6,7 @@ export function Footer() {
   return (
     <footer className="text-foreground" style={{ backgroundColor: '#FFDB75' }}>
       <div className="container mx-auto px-4 py-12">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-8">
           <div>
             <div className="mb-4">
               <Image
@@ -69,6 +69,37 @@ export function Footer() {
               <li>
                 <Link href="/faq" className="hover:text-primary transition-colors">
                   FAQ
+                </Link>
+              </li>
+            </ul>
+          </div>
+
+          <div>
+            <h3 className="font-semibold mb-4 text-foreground">Policies</h3>
+            <ul className="space-y-2 text-sm text-muted-foreground">
+              <li>
+                <Link href="/policies/terms-and-conditions" className="hover:text-primary transition-colors">
+                  Terms and Conditions
+                </Link>
+              </li>
+              <li>
+                <Link href="/policies/privacy-policy" className="hover:text-primary transition-colors">
+                  Privacy Policy
+                </Link>
+              </li>
+              <li>
+                <Link href="/policies/cookies-policy" className="hover:text-primary transition-colors">
+                  Cookies Policy
+                </Link>
+              </li>
+              <li>
+                <Link href="/policies/return-policy" className="hover:text-primary transition-colors">
+                  Return Policy
+                </Link>
+              </li>
+              <li>
+                <Link href="/policies/customisation-policy" className="hover:text-primary transition-colors">
+                  Customisation Policy
                 </Link>
               </li>
             </ul>
