@@ -664,11 +664,21 @@ function CustomizePageContent() {
         timestamp: new Date().toISOString()
       };
 
+      // Validate product_id - must be a valid UUID or null
+      const isValidUUID = (str: string) => {
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        return uuidRegex.test(str);
+      };
+      
+      const productId = selectedProduct.id && isValidUUID(selectedProduct.id) 
+        ? selectedProduct.id 
+        : null;
+
       const { data: design, error: designError } = await supabase
         .from('designs')
         .insert({
           user_id: user.id,
-          product_id: selectedProduct.id || null,
+          product_id: productId,
           design_data: designData,
           preview_url: null,
           client_instructions: clientInstructions.trim() || null,
@@ -730,7 +740,7 @@ function CustomizePageContent() {
         .from('cart_items')
         .insert({
           user_id: user.id,
-          product_id: selectedProduct.id || null,
+          product_id: productId,
           design_id: design.id,
           quantity: quantity,
           size: selectedProduct.size,

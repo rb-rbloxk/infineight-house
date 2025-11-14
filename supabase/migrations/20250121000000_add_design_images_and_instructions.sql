@@ -10,7 +10,10 @@ COMMENT ON COLUMN designs.png_image_url IS 'URL to the PNG image of the design';
 COMMENT ON COLUMN designs.pdf_image_url IS 'URL to the PDF image of the design';
 
 -- Update RLS policies to allow admins to view all designs
-CREATE POLICY IF NOT EXISTS "Admins can view all designs"
+-- Drop policy if it exists, then create it
+DROP POLICY IF EXISTS "Admins can view all designs" ON designs;
+
+CREATE POLICY "Admins can view all designs"
   ON designs FOR SELECT
   TO authenticated
   USING (
