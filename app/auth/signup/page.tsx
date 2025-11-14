@@ -122,7 +122,7 @@ export default function SignupPage() {
                 />
               </div>
               <div>
-                <Label htmlFor="phone" className="text-foreground">Phone Number</Label>
+                <Label htmlFor="phone" className="text-foreground">Phone Number (Optional)</Label>
                 <Input
                   id="phone"
                   type="tel"

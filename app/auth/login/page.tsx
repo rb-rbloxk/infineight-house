@@ -9,21 +9,16 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Loader2, Mail, Phone } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { signIn, signInWithPhone, verifyOTP, user, loading: authLoading } = useAuth();
+  const { signIn, user, loading: authLoading } = useAuth();
   const [loading, setLoading] = useState(false);
-  const [otpSent, setOtpSent] = useState(false);
-  const [otpVerifying, setOtpVerifying] = useState(false);
   const [formData, setFormData] = useState({
     email: '',
     password: '',
-    phone: '',
-    otp: '',
   });
 
   // Redirect if user is already logged in
@@ -104,36 +99,6 @@ export default function LoginPage() {
     }
   };
 
-  const handlePhoneLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-
-    try {
-      await signInWithPhone(formData.phone);
-      setOtpSent(true);
-      toast.success('OTP sent to your phone!');
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to send OTP');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleOTPVerification = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setOtpVerifying(true);
-
-    try {
-      await verifyOTP(formData.phone, formData.otp);
-      toast.success('Login successful!');
-      router.push('/shop');
-    } catch (error: any) {
-      toast.error(error.message || 'OTP verification failed');
-    } finally {
-      setOtpVerifying(false);
-    }
-  };
-
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <div className="w-full max-w-md">
@@ -153,137 +118,46 @@ export default function LoginPage() {
             <CardDescription className="text-muted-foreground">Login to your account</CardDescription>
           </CardHeader>
           <CardContent>
-            <Tabs defaultValue="email" className="w-full">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="email" className="flex items-center gap-2">
-                  <Mail className="h-4 w-4" />
-                  Email
-                </TabsTrigger>
-                <TabsTrigger value="phone" className="flex items-center gap-2">
-                  <Phone className="h-4 w-4" />
-                  Phone
-                </TabsTrigger>
-              </TabsList>
-              
-              <TabsContent value="email" className="space-y-4">
-                <form onSubmit={handleEmailLogin} className="space-y-4">
-                  <div>
-                    <Label htmlFor="email" className="text-foreground">Email</Label>
-                    <Input
-                      id="email"
-                      type="email"
-                      placeholder="your@email.com"
-                      value={formData.email}
-                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                      required
-                      className="bg-background border-border text-foreground placeholder:text-muted-foreground"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="password" className="text-foreground">Password</Label>
-                    <Input
-                      id="password"
-                      type="password"
-                      placeholder="••••••••"
-                      value={formData.password}
-                      onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                      required
-                      className="bg-background border-border text-foreground placeholder:text-muted-foreground"
-                    />
-                  </div>
-                  <Button
-                    type="submit"
-                    className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
-                    disabled={loading}
-                  >
-                    {loading ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Logging in...
-                      </>
-                    ) : (
-                      'Login'
-                    )}
-                  </Button>
-                </form>
-              </TabsContent>
-              
-              <TabsContent value="phone" className="space-y-4">
-                {!otpSent ? (
-                  <form onSubmit={handlePhoneLogin} className="space-y-4">
-                    <div>
-                      <Label htmlFor="phone" className="text-foreground">Phone Number</Label>
-                      <Input
-                        id="phone"
-                        type="tel"
-                        placeholder="+1234567890"
-                        value={formData.phone}
-                        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                        required
-                        className="bg-background border-border text-foreground placeholder:text-muted-foreground"
-                      />
-                    </div>
-                    <Button
-                      type="submit"
-                      className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
-                      disabled={loading}
-                    >
-                      {loading ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Sending OTP...
-                        </>
-                      ) : (
-                        'Send OTP'
-                      )}
-                    </Button>
-                  </form>
+            <form onSubmit={handleEmailLogin} className="space-y-4">
+              <div>
+                <Label htmlFor="email" className="text-foreground">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="your@email.com"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  required
+                  className="bg-background border-border text-foreground placeholder:text-muted-foreground"
+                />
+              </div>
+              <div>
+                <Label htmlFor="password" className="text-foreground">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="••••••••"
+                  value={formData.password}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  required
+                  className="bg-background border-border text-foreground placeholder:text-muted-foreground"
+                />
+              </div>
+              <Button
+                type="submit"
+                className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
+                disabled={loading}
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Logging in...
+                  </>
                 ) : (
-                  <form onSubmit={handleOTPVerification} className="space-y-4">
-                    <div>
-                      <Label htmlFor="otp" className="text-foreground">Enter OTP</Label>
-                      <Input
-                        id="otp"
-                        type="text"
-                        placeholder="123456"
-                        value={formData.otp}
-                        onChange={(e) => setFormData({ ...formData, otp: e.target.value })}
-                        required
-                        className="bg-background border-border text-foreground placeholder:text-muted-foreground"
-                      />
-                      <p className="text-xs text-muted-foreground mt-1">
-                        OTP sent to {formData.phone}
-                      </p>
-                    </div>
-                    <Button
-                      type="submit"
-                      className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
-                      disabled={otpVerifying}
-                    >
-                      {otpVerifying ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Verifying...
-                        </>
-                      ) : (
-                        'Verify OTP'
-                      )}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="w-full"
-                      onClick={() => {
-                        setOtpSent(false);
-                        setFormData({ ...formData, otp: '' });
-                      }}
-                    >
-                      Back to Phone Number
-                    </Button>
-                  </form>
+                  'Login'
                 )}
-              </TabsContent>
-            </Tabs>
+              </Button>
+            </form>
             
             <div className="mt-6 space-y-2">
               <p className="text-center text-sm text-muted-foreground">

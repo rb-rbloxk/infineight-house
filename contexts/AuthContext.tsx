@@ -11,8 +11,6 @@ type AuthContextType = {
   loading: boolean;
   signUp: (email: string, password: string, fullName: string, phone?: string) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
-  signInWithPhone: (phone: string) => Promise<void>;
-  verifyOTP: (phone: string, otp: string) => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 };
@@ -45,11 +43,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Profile doesn't exist, create one
       const { data: userData } = await supabase.auth.getUser();
       if (userData.user) {
+        // Get phone from user metadata or phone field
+        const phone = userData.user.phone || userData.user.user_metadata?.phone || null;
+        const email = userData.user.email || null;
+        const fullName = userData.user.user_metadata?.full_name || null;
+
         const { data: newProfile, error: createError } = await supabase
           .from('profiles')
           .insert({
             id: userId,
-            email: userData.user.email!,
+            email: email,
+            phone: phone,
+            full_name: fullName,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
           })
@@ -154,23 +159,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return;
   };
 
-  const signInWithPhone = async (phone: string) => {
-    const { error } = await supabase.auth.signInWithOtp({
-      phone,
-    });
-
-    if (error) throw error;
-  };
-
-  const verifyOTP = async (phone: string, otp: string) => {
-    const { error } = await supabase.auth.verifyOtp({
-      phone,
-      token: otp,
-      type: 'sms',
-    });
-
-    if (error) throw error;
-  };
 
   const signIn = async (email: string, password: string) => {
     const { data, error } = await supabase.auth.signInWithPassword({
@@ -219,8 +207,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loading,
         signUp,
         signIn,
-        signInWithPhone,
-        verifyOTP,
         signOut,
         refreshProfile,
       }}
