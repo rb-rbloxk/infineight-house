@@ -107,6 +107,8 @@ function CustomizePageContent() {
   const [isAutoRotate, setIsAutoRotate] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [isResizing, setIsResizing] = useState(false);
+  const [resizeHandle, setResizeHandle] = useState<string | null>(null);
   const [snapToGrid, setSnapToGrid] = useState(true);
   const [showGrid, setShowGrid] = useState(false);
   const [zoom, setZoom] = useState(100);
@@ -114,6 +116,27 @@ function CustomizePageContent() {
     isDragging: false,
     elementId: null,
     offset: { x: 0, y: 0 }
+  });
+  const resizeRef = useRef<{ 
+    isResizing: boolean; 
+    elementId: string | null; 
+    handle: string | null;
+    startX: number;
+    startY: number;
+    startWidth: number;
+    startHeight: number;
+    startElementX: number;
+    startElementY: number;
+  }>({
+    isResizing: false,
+    elementId: null,
+    handle: null,
+    startX: 0,
+    startY: 0,
+    startWidth: 0,
+    startHeight: 0,
+    startElementX: 0,
+    startElementY: 0
   });
 
   const productColors = [
@@ -281,30 +304,87 @@ function CustomizePageContent() {
   };
 
   const handleMouseMove = React.useCallback((e: MouseEvent) => {
-    if (!dragRef.current.isDragging || !dragRef.current.elementId) return;
-    
-    const container = document.querySelector('[data-preview-container]')?.getBoundingClientRect();
-    if (!container) return;
-    
-    let newX = e.clientX - container.left - dragRef.current.offset.x;
-    let newY = e.clientY - container.top - dragRef.current.offset.y;
-    
-    // Snap to grid if enabled
-    if (snapToGrid) {
-      const gridSize = 10;
-      newX = Math.round(newX / gridSize) * gridSize;
-      newY = Math.round(newY / gridSize) * gridSize;
+    // Handle dragging
+    if (dragRef.current.isDragging && dragRef.current.elementId) {
+      const container = document.querySelector('[data-preview-container]')?.getBoundingClientRect();
+      if (!container) return;
+      
+      let newX = e.clientX - container.left - dragRef.current.offset.x;
+      let newY = e.clientY - container.top - dragRef.current.offset.y;
+      
+      // Snap to grid if enabled
+      if (snapToGrid) {
+        const gridSize = 10;
+        newX = Math.round(newX / gridSize) * gridSize;
+        newY = Math.round(newY / gridSize) * gridSize;
+      }
+      
+      // Constrain to bounds
+      const element = designElements.find(el => el.id === dragRef.current.elementId);
+      if (element) {
+        newX = Math.max(0, Math.min(newX, container.width - element.width));
+        newY = Math.max(0, Math.min(newY, container.height - element.height));
+      }
+      
+      updateElement(dragRef.current.elementId, { x: newX, y: newY });
+      return;
     }
     
-    // Constrain to bounds
-    const element = designElements.find(el => el.id === dragRef.current.elementId);
-    if (element) {
-      newX = Math.max(0, Math.min(newX, container.width - element.width));
-      newY = Math.max(0, Math.min(newY, container.height - element.height));
+    // Handle resizing
+    if (resizeRef.current.isResizing && resizeRef.current.elementId && resizeRef.current.handle) {
+      const container = document.querySelector('[data-preview-container]')?.getBoundingClientRect();
+      if (!container) return;
+      
+      const deltaX = (e.clientX - container.left - resizeRef.current.startX) / (zoom / 100);
+      const deltaY = (e.clientY - container.top - resizeRef.current.startY) / (zoom / 100);
+      
+      let newWidth = resizeRef.current.startWidth;
+      let newHeight = resizeRef.current.startHeight;
+      let newX = resizeRef.current.startElementX;
+      let newY = resizeRef.current.startElementY;
+      
+      const handle = resizeRef.current.handle;
+      const minSize = 20; // Minimum size
+      
+      // Calculate new dimensions based on handle
+      if (handle.includes('e')) { // East (right)
+        newWidth = Math.max(minSize, resizeRef.current.startWidth + deltaX);
+      }
+      if (handle.includes('w')) { // West (left)
+        newWidth = Math.max(minSize, resizeRef.current.startWidth - deltaX);
+        newX = resizeRef.current.startElementX + (resizeRef.current.startWidth - newWidth);
+      }
+      if (handle.includes('s')) { // South (bottom)
+        newHeight = Math.max(minSize, resizeRef.current.startHeight + deltaY);
+      }
+      if (handle.includes('n')) { // North (top)
+        newHeight = Math.max(minSize, resizeRef.current.startHeight - deltaY);
+        newY = resizeRef.current.startElementY + (resizeRef.current.startHeight - newHeight);
+      }
+      
+      // Constrain to container bounds
+      const maxWidth = container.width / (zoom / 100) - newX;
+      const maxHeight = container.height / (zoom / 100) - newY;
+      newWidth = Math.min(newWidth, maxWidth);
+      newHeight = Math.min(newHeight, maxHeight);
+      
+      // Snap to grid if enabled
+      if (snapToGrid) {
+        const gridSize = 10;
+        newWidth = Math.round(newWidth / gridSize) * gridSize;
+        newHeight = Math.round(newHeight / gridSize) * gridSize;
+        newX = Math.round(newX / gridSize) * gridSize;
+        newY = Math.round(newY / gridSize) * gridSize;
+      }
+      
+      updateElement(resizeRef.current.elementId, { 
+        width: Math.max(minSize, newWidth), 
+        height: Math.max(minSize, newHeight),
+        x: Math.max(0, newX),
+        y: Math.max(0, newY)
+      });
     }
-    
-    updateElement(dragRef.current.elementId, { x: newX, y: newY });
-  }, [snapToGrid, designElements]);
+  }, [snapToGrid, designElements, zoom]);
 
   const handleMouseUp = React.useCallback(() => {
     if (dragRef.current.isDragging) {
@@ -315,13 +395,70 @@ function CustomizePageContent() {
         offset: { x: 0, y: 0 }
       };
     }
+    if (resizeRef.current.isResizing) {
+      setIsResizing(false);
+      setResizeHandle(null);
+      resizeRef.current = {
+        isResizing: false,
+        elementId: null,
+        handle: null,
+        startX: 0,
+        startY: 0,
+        startWidth: 0,
+        startHeight: 0,
+        startElementX: 0,
+        startElementY: 0
+      };
+    }
   }, []);
 
+  const handleResizeStart = (e: React.MouseEvent, elementId: string, handle: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const element = designElements.find(el => el.id === elementId);
+    if (!element || element.locked) return;
+    
+    setIsResizing(true);
+    setResizeHandle(handle);
+    setSelectedElement(elementId);
+    
+    const container = document.querySelector('[data-preview-container]')?.getBoundingClientRect();
+    if (container) {
+      resizeRef.current = {
+        isResizing: true,
+        elementId,
+        handle,
+        startX: e.clientX - container.left,
+        startY: e.clientY - container.top,
+        startWidth: element.width,
+        startHeight: element.height,
+        startElementX: element.x,
+        startElementY: element.y
+      };
+    }
+  };
+
   useEffect(() => {
-    if (isDragging) {
+    if (isDragging || isResizing) {
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = 'grabbing';
+      if (isDragging) {
+        document.body.style.cursor = 'grabbing';
+      } else if (isResizing) {
+        // Set cursor based on resize handle
+        const cursorMap: { [key: string]: string } = {
+          'nw': 'nw-resize',
+          'ne': 'ne-resize',
+          'sw': 'sw-resize',
+          'se': 'se-resize',
+          'n': 'n-resize',
+          's': 's-resize',
+          'e': 'e-resize',
+          'w': 'w-resize'
+        };
+        document.body.style.cursor = cursorMap[resizeHandle || 'se'] || 'se-resize';
+      }
       document.body.style.userSelect = 'none';
     }
 
@@ -331,7 +468,7 @@ function CustomizePageContent() {
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };
-  }, [isDragging, handleMouseMove, handleMouseUp]);
+  }, [isDragging, isResizing, resizeHandle, handleMouseMove, handleMouseUp]);
 
   const updateElement = (id: string, updates: Partial<DesignElement>) => {
     setDesignElements(elements =>
@@ -799,11 +936,11 @@ function CustomizePageContent() {
                           <div
                             key={element.id}
                             className={`absolute transition-all duration-200 ${
-                              isDragging && dragRef.current.elementId === element.id 
-                                ? 'transition-none z-50 scale-105' 
+                              (isDragging && dragRef.current.elementId === element.id) || (isResizing && resizeRef.current.elementId === element.id)
+                                ? 'transition-none z-50' 
                                 : 'duration-300 ease-out'
                             } ${
-                              selectedElement === element.id ? 'outline-1 outline-dashed outline-primary/30' : ''
+                              selectedElement === element.id ? 'outline-2 outline-dashed outline-primary/50' : ''
                             }`}
                             style={{
                               left: element.x,
@@ -817,8 +954,8 @@ function CustomizePageContent() {
                               zIndex: element.layer,
                               filter: element.shadow ? 'drop-shadow(0 4px 6px rgba(0,0,0,0.3))' : 'none'
                             }}
-                            onMouseDown={(e) => handleMouseDown(e, element.id)}
-                            onClick={() => !isDragging && setSelectedElement(element.id)}
+                            onMouseDown={(e) => !isResizing && handleMouseDown(e, element.id)}
+                            onClick={() => !isDragging && !isResizing && setSelectedElement(element.id)}
                           >
                             {element.type === 'text' ? (
                               <div
@@ -857,6 +994,63 @@ function CustomizePageContent() {
                                   pointerEvents: 'none'
                                 }}
                               />
+                            )}
+                            
+                            {/* Resize Handles - Only show when selected and not locked */}
+                            {selectedElement === element.id && !element.locked && (
+                              <>
+                                {/* Corner handles */}
+                                <div
+                                  className="absolute -top-1 -left-1 w-3 h-3 bg-primary border-2 border-white rounded-full cursor-nw-resize pointer-events-auto z-50"
+                                  onMouseDown={(e) => handleResizeStart(e, element.id, 'nw')}
+                                  style={{ boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }}
+                                />
+                                <div
+                                  className="absolute -top-1 -right-1 w-3 h-3 bg-primary border-2 border-white rounded-full cursor-ne-resize pointer-events-auto z-50"
+                                  onMouseDown={(e) => handleResizeStart(e, element.id, 'ne')}
+                                  style={{ boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }}
+                                />
+                                <div
+                                  className="absolute -bottom-1 -left-1 w-3 h-3 bg-primary border-2 border-white rounded-full cursor-sw-resize pointer-events-auto z-50"
+                                  onMouseDown={(e) => handleResizeStart(e, element.id, 'sw')}
+                                  style={{ boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }}
+                                />
+                                <div
+                                  className="absolute -bottom-1 -right-1 w-3 h-3 bg-primary border-2 border-white rounded-full cursor-se-resize pointer-events-auto z-50"
+                                  onMouseDown={(e) => handleResizeStart(e, element.id, 'se')}
+                                  style={{ boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }}
+                                />
+                                
+                                {/* Edge handles */}
+                                <div
+                                  className="absolute -top-1 left-1/2 transform -translate-x-1/2 w-3 h-3 bg-primary border-2 border-white rounded-full cursor-n-resize pointer-events-auto z-50"
+                                  onMouseDown={(e) => handleResizeStart(e, element.id, 'n')}
+                                  style={{ boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }}
+                                />
+                                <div
+                                  className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-3 h-3 bg-primary border-2 border-white rounded-full cursor-s-resize pointer-events-auto z-50"
+                                  onMouseDown={(e) => handleResizeStart(e, element.id, 's')}
+                                  style={{ boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }}
+                                />
+                                <div
+                                  className="absolute -left-1 top-1/2 transform -translate-y-1/2 w-3 h-3 bg-primary border-2 border-white rounded-full cursor-w-resize pointer-events-auto z-50"
+                                  onMouseDown={(e) => handleResizeStart(e, element.id, 'w')}
+                                  style={{ boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }}
+                                />
+                                <div
+                                  className="absolute -right-1 top-1/2 transform -translate-y-1/2 w-3 h-3 bg-primary border-2 border-white rounded-full cursor-e-resize pointer-events-auto z-50"
+                                  onMouseDown={(e) => handleResizeStart(e, element.id, 'e')}
+                                  style={{ boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }}
+                                />
+                                
+                                {/* Size Display */}
+                                <div
+                                  className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-primary/90 text-primary-foreground text-xs px-2 py-1 rounded pointer-events-none whitespace-nowrap z-50"
+                                  style={{ boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }}
+                                >
+                                  {Math.round(element.width)} × {Math.round(element.height)} px
+                                </div>
+                              </>
                             )}
                           </div>
                         ))}
@@ -1106,6 +1300,46 @@ function CustomizePageContent() {
                         />
                       </div>
                     )}
+
+                    <Separator />
+
+                    {/* Size Controls */}
+                    <div>
+                      <Label className="text-sm mb-2 block">Size (px)</Label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <Label className="text-xs text-muted-foreground">Width</Label>
+                          <Input
+                            type="number"
+                            value={Math.round(element.width)}
+                            onChange={(e) => {
+                              const value = parseInt(e.target.value) || 20;
+                              updateElement(element.id, { width: Math.max(20, value) });
+                            }}
+                            className="bg-background border-border mt-1"
+                            min={20}
+                            step={1}
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-xs text-muted-foreground">Height</Label>
+                          <Input
+                            type="number"
+                            value={Math.round(element.height)}
+                            onChange={(e) => {
+                              const value = parseInt(e.target.value) || 20;
+                              updateElement(element.id, { height: Math.max(20, value) });
+                            }}
+                            className="bg-background border-border mt-1"
+                            min={20}
+                            step={1}
+                          />
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Or drag the resize handles on the element
+                      </p>
+                    </div>
 
                     <Separator />
 

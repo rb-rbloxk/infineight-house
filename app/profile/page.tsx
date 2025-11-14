@@ -543,7 +543,7 @@ function ProfilePageContent() {
               </Card>
 
               {/* Manage Addresses */}
-              <Card className="bg-card border-border space-y-4">
+              <Card className="bg-card border-border space-y-4 mt-6">
                 <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle className="text-foreground flex items-center">
                     <MapPin className="h-5 w-5 mr-2" />
