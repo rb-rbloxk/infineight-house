@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Slider } from '@/components/ui/slider';
@@ -38,9 +39,12 @@ import {
   Image as ImageIcon,
   Shapes,
   PaintBucket,
-  Wand2
+  Wand2,
+  RefreshCw
 } from 'lucide-react';
 import { toast } from 'sonner';
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
 
 interface DesignElement {
   id: string;
@@ -103,6 +107,9 @@ function CustomizePageContent() {
   const [previewView, setPreviewView] = useState<'front' | 'back' | '3d'>('3d');
   const [quantity, setQuantity] = useState(1);
   const [isInWishlist, setIsInWishlist] = useState(false);
+  const [clientInstructions, setClientInstructions] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const previewContainerRef = useRef<HTMLDivElement>(null);
   const [rotation3D, setRotation3D] = useState(0);
   const [isAutoRotate, setIsAutoRotate] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -525,6 +532,111 @@ function CustomizePageContent() {
     });
   };
 
+  const captureCanvasAsImage = async (format: 'png' | 'pdf'): Promise<Blob | null> => {
+    if (!previewContainerRef.current) return null;
+
+    try {
+      const container = previewContainerRef.current;
+      
+      // Store original styles to restore later
+      const elementsToHide: Array<{ element: HTMLElement; originalDisplay: string; originalOpacity: string }> = [];
+      
+      // Hide resize handles and selection indicators temporarily
+      const resizeHandles = container.querySelectorAll('[class*="cursor-nw-resize"], [class*="cursor-ne-resize"], [class*="cursor-sw-resize"], [class*="cursor-se-resize"], [class*="cursor-n-resize"], [class*="cursor-s-resize"], [class*="cursor-e-resize"], [class*="cursor-w-resize"]');
+      const sizeDisplays = container.querySelectorAll('[class*="absolute"][class*="-top-8"]');
+      
+      // Hide UI elements
+      resizeHandles.forEach((el) => {
+        const htmlEl = el as HTMLElement;
+        elementsToHide.push({
+          element: htmlEl,
+          originalDisplay: htmlEl.style.display,
+          originalOpacity: htmlEl.style.opacity
+        });
+        htmlEl.style.display = 'none';
+      });
+      
+      sizeDisplays.forEach((el) => {
+        const htmlEl = el as HTMLElement;
+        elementsToHide.push({
+          element: htmlEl,
+          originalDisplay: htmlEl.style.display,
+          originalOpacity: htmlEl.style.opacity
+        });
+        htmlEl.style.display = 'none';
+      });
+
+      // Capture the canvas
+      const canvas = await html2canvas(container, {
+        backgroundColor: '#ffffff',
+        scale: 2,
+        logging: false,
+        useCORS: true,
+        allowTaint: false,
+        width: container.offsetWidth,
+        height: container.offsetHeight,
+      });
+
+      // Restore UI elements
+      elementsToHide.forEach(({ element, originalDisplay, originalOpacity }) => {
+        element.style.display = originalDisplay;
+        element.style.opacity = originalOpacity;
+      });
+
+      if (format === 'png') {
+        return new Promise((resolve) => {
+          canvas.toBlob((blob) => {
+            resolve(blob);
+          }, 'image/png', 0.95);
+        });
+      } else {
+        // Convert to PDF
+        const imgData = canvas.toDataURL('image/png', 0.95);
+        const pdf = new jsPDF({
+          orientation: canvas.width > canvas.height ? 'landscape' : 'portrait',
+          unit: 'px',
+          format: [canvas.width, canvas.height]
+        });
+        pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+        const pdfBlob = pdf.output('blob');
+        return pdfBlob;
+      }
+    } catch (error) {
+      console.error('Error capturing canvas:', error);
+      return null;
+    }
+  };
+
+  const uploadDesignImage = async (blob: Blob, designId: string, format: 'png' | 'pdf'): Promise<string | null> => {
+    try {
+      const fileName = `${designId}-${Date.now()}.${format}`;
+      const filePath = `designs/${user?.id}/${fileName}`;
+
+      const { data, error } = await supabase.storage
+        .from('design-images')
+        .upload(filePath, blob, {
+          cacheControl: '3600',
+          upsert: false,
+          contentType: format === 'png' ? 'image/png' : 'application/pdf'
+        });
+
+      if (error) {
+        console.error('Error uploading image:', error);
+        return null;
+      }
+
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from('design-images')
+        .getPublicUrl(filePath);
+
+      return urlData.publicUrl;
+    } catch (error) {
+      console.error('Error in uploadDesignImage:', error);
+      return null;
+    }
+  };
+
   const addToCart = async () => {
     if (designElements.length === 0) {
       toast.error('Please add at least one design element');
@@ -537,8 +649,10 @@ function CustomizePageContent() {
       return;
     }
 
+    setIsSaving(true);
+
     try {
-      // 1. Save the design to the designs table
+      // 1. Save the design to the designs table first (to get the design ID)
       const designData = {
         elements: designElements,
         product: selectedProduct,
@@ -554,9 +668,10 @@ function CustomizePageContent() {
         .from('designs')
         .insert({
           user_id: user.id,
-          product_id: selectedProduct.id || null, // Will need product ID
+          product_id: selectedProduct.id || null,
           design_data: designData,
-          preview_url: null, // Could be enhanced to save a canvas snapshot
+          preview_url: null,
+          client_instructions: clientInstructions.trim() || null,
           is_saved: true
         })
         .select()
@@ -564,11 +679,47 @@ function CustomizePageContent() {
 
       if (designError) {
         console.error('Error saving design:', designError);
-        toast.error('Failed to save design');
+        toast.error('Failed to save design: ' + designError.message);
+        setIsSaving(false);
         return;
       }
 
-      // 2. Add to cart with design_id
+      // 2. Capture and upload images
+      toast.loading('Capturing design images...', { id: 'capturing' });
+
+      const pngBlob = await captureCanvasAsImage('png');
+      const pdfBlob = await captureCanvasAsImage('pdf');
+
+      let pngUrl: string | null = null;
+      let pdfUrl: string | null = null;
+
+      if (pngBlob) {
+        pngUrl = await uploadDesignImage(pngBlob, design.id, 'png');
+      }
+
+      if (pdfBlob) {
+        pdfUrl = await uploadDesignImage(pdfBlob, design.id, 'pdf');
+      }
+
+      // 3. Update design with image URLs
+      const { error: updateError } = await supabase
+        .from('designs')
+        .update({
+          png_image_url: pngUrl,
+          pdf_image_url: pdfUrl,
+          preview_url: pngUrl // Use PNG as preview
+        })
+        .eq('id', design.id);
+
+      if (updateError) {
+        console.error('Error updating design with images:', updateError);
+        // Don't fail the whole process if image upload fails
+        toast.warning('Design saved but image upload failed', { id: 'capturing' });
+      } else {
+        toast.success('Design images captured successfully!', { id: 'capturing' });
+      }
+
+      // 4. Add to cart with design_id
       const customizationDetails = {
         designElements: designElements.length,
         customizationFee: 50,
@@ -590,6 +741,7 @@ function CustomizePageContent() {
       if (cartError) {
         console.error('Error adding to cart:', cartError);
         toast.error('Failed to add to cart');
+        setIsSaving(false);
         return;
       }
 
@@ -597,11 +749,16 @@ function CustomizePageContent() {
         description: `${selectedProduct.name} (${selectedProduct.size}) x${quantity} with custom design`
       });
 
+      // Reset form
+      setClientInstructions('');
+      setIsSaving(false);
+
       // Optionally redirect to cart
       // router.push('/cart');
     } catch (error) {
       console.error('Error in addToCart:', error);
       toast.error('Something went wrong');
+      setIsSaving(false);
     }
   };
 
@@ -800,6 +957,7 @@ function CustomizePageContent() {
               </CardHeader>
               <CardContent>
                 <div 
+                  ref={previewContainerRef}
                   className={`relative bg-gradient-to-br from-muted to-muted/50 rounded-xl p-8 min-h-[700px] flex items-center justify-center overflow-hidden ${
                     showGrid ? 'bg-grid-pattern' : ''
                   }`}
@@ -1524,12 +1682,44 @@ function CustomizePageContent() {
                   </div>
                 </div>
 
+                <Separator />
+
+                {/* Client Instructions */}
+                <div>
+                  <Label className="text-sm">Client Instructions (Optional)</Label>
+                  <Textarea
+                    value={clientInstructions}
+                    onChange={(e) => setClientInstructions(e.target.value)}
+                    placeholder="Add any special instructions or notes for this design..."
+                    className="bg-background border-border mt-1 min-h-[100px]"
+                    rows={4}
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Provide any specific instructions or requirements for your design
+                  </p>
+                </div>
+
+                <Separator />
+
                 <div className="space-y-2">
-                  <Button onClick={addToCart} className="w-full bg-primary hover:bg-primary/90 text-primary-foreground">
-                    <ShoppingCart className="h-4 w-4 mr-2" />
-                    Add to Cart
+                  <Button 
+                    onClick={addToCart} 
+                    className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
+                    disabled={isSaving}
+                  >
+                    {isSaving ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                        Saving Design...
+                      </>
+                    ) : (
+                      <>
+                        <ShoppingCart className="h-4 w-4 mr-2" />
+                        Add to Cart
+                      </>
+                    )}
                   </Button>
-                  <Button onClick={toggleWishlist} variant="outline" className="w-full">
+                  <Button onClick={toggleWishlist} variant="outline" className="w-full" disabled={isSaving}>
                     <Heart className={`h-4 w-4 mr-2 ${isInWishlist ? 'fill-red-500 text-red-500' : ''}`} />
                     {isInWishlist ? 'Remove from' : 'Add to'} Wishlist
                   </Button>

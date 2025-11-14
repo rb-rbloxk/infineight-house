@@ -40,7 +40,8 @@ import {
   DollarSign,
   Package2,
   Clock,
-  Target
+  Target,
+  FileText
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
@@ -97,6 +98,27 @@ interface UserProfile {
   updated_at: string;
 }
 
+interface Design {
+  id: string;
+  user_id: string;
+  product_id: string | null;
+  design_data: any;
+  preview_url: string | null;
+  png_image_url: string | null;
+  pdf_image_url: string | null;
+  client_instructions: string | null;
+  is_saved: boolean;
+  created_at: string;
+  updated_at: string;
+  profiles?: {
+    email: string;
+    full_name: string | null;
+  };
+  products?: {
+    name: string;
+  };
+}
+
 interface AnalyticsData {
   totalUsers: number;
   totalOrders: number;
@@ -137,6 +159,7 @@ function AdminDashboardContent() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [enquiries, setEnquiries] = useState<CorporateEnquiry[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
+  const [designs, setDesigns] = useState<Design[]>([]);
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [stats, setStats] = useState<DashboardStats>({
     totalProducts: 0,
@@ -229,7 +252,7 @@ function AdminDashboardContent() {
   const loadDashboardData = async () => {
     try {
       // Use Promise.all to fetch all data in parallel for faster loading
-      const [productsResult, ordersResult, enquiriesResult, usersResult] = await Promise.all([
+      const [productsResult, ordersResult, enquiriesResult, usersResult, designsResult] = await Promise.all([
         // Fetch products from database
         supabase
           .from('products')
@@ -252,7 +275,18 @@ function AdminDashboardContent() {
           .order('created_at', { ascending: false }),
         
         // Fetch users using API route (bypasses RLS)
-        fetch('/api/admin/users').then(res => res.json())
+        fetch('/api/admin/users').then(res => res.json()),
+        
+        // Fetch designs from database
+        supabase
+          .from('designs')
+          .select(`
+            *,
+            profiles:user_id(email, full_name),
+            products:product_id(name)
+          `)
+          .eq('is_saved', true)
+          .order('created_at', { ascending: false })
       ]);
 
       // Handle products
@@ -282,6 +316,10 @@ function AdminDashboardContent() {
         throw new Error(usersResult.error || 'Failed to fetch users');
       }
       setUsers(usersResult.users || []);
+
+      // Handle designs
+      if (designsResult.error) throw designsResult.error;
+      setDesigns(designsResult.data || []);
 
       // Calculate analytics and stats in parallel
       const [analyticsData, statsData] = await Promise.all([
@@ -781,6 +819,7 @@ function AdminDashboardContent() {
               <TabsTrigger value="products">Products</TabsTrigger>
               <TabsTrigger value="orders">Orders</TabsTrigger>
               <TabsTrigger value="enquiries">Enquiries</TabsTrigger>
+              <TabsTrigger value="designs">Designs</TabsTrigger>
               <TabsTrigger value="users">Users</TabsTrigger>
               <TabsTrigger value="analytics">Analytics</TabsTrigger>
         </TabsList>
@@ -1320,6 +1359,150 @@ function AdminDashboardContent() {
                       ))
                     )}
                   </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* Designs Tab */}
+            <TabsContent value="designs" className="space-y-6">
+              <Card className="bg-card border-border">
+                <CardHeader>
+                  <CardTitle className="text-primary">Custom Designs</CardTitle>
+                  <p className="text-sm text-muted-foreground mt-2">
+                    View all custom designs created by clients with images and instructions
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  {designs.length === 0 ? (
+                    <div className="text-center py-12">
+                      <Package className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
+                      <h3 className="text-xl font-semibold text-foreground mb-2">No Designs Yet</h3>
+                      <p className="text-muted-foreground">
+                        Custom designs will appear here when clients create and save them.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      {designs.map((design) => (
+                        <Card key={design.id} className="bg-secondary border-border">
+                          <CardContent className="p-6">
+                            <div className="flex items-start justify-between mb-4">
+                              <div>
+                                <h3 className="font-semibold text-foreground text-lg">
+                                  {design.products?.name || 'Custom Design'}
+                                </h3>
+                                <p className="text-sm text-muted-foreground">
+                                  {design.profiles?.full_name || design.profiles?.email || 'Unknown User'}
+                                </p>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  {new Date(design.created_at).toLocaleString()}
+                                </p>
+                              </div>
+                              <Badge variant="outline" className="text-xs">
+                                {design.is_saved ? 'Saved' : 'Draft'}
+                              </Badge>
+                            </div>
+
+                            {/* Design Images */}
+                            <div className="grid grid-cols-2 gap-4 mb-4">
+                              {design.png_image_url && (
+                                <div>
+                                  <Label className="text-xs text-muted-foreground mb-2 block">PNG Image</Label>
+                                  <div className="relative aspect-square bg-background rounded border overflow-hidden">
+                                    <img
+                                      src={design.png_image_url}
+                                      alt="Design PNG"
+                                      className="w-full h-full object-contain"
+                                    />
+                                    <a
+                                      href={design.png_image_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 hover:opacity-100 transition-opacity"
+                                    >
+                                      <Eye className="h-6 w-6 text-white" />
+                                    </a>
+                                  </div>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="w-full mt-2"
+                                    onClick={() => window.open(design.png_image_url!, '_blank')}
+                                  >
+                                    <Download className="h-3 w-3 mr-1" />
+                                    Download PNG
+                                  </Button>
+                                </div>
+                              )}
+                              {design.pdf_image_url && (
+                                <div>
+                                  <Label className="text-xs text-muted-foreground mb-2 block">PDF Document</Label>
+                                  <div className="relative aspect-square bg-background rounded border flex items-center justify-center">
+                                    <div className="text-center">
+                                      <FileText className="h-12 w-12 mx-auto mb-2 text-muted-foreground" />
+                                      <p className="text-xs text-muted-foreground">PDF Available</p>
+                                    </div>
+                                  </div>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="w-full mt-2"
+                                    onClick={() => window.open(design.pdf_image_url!, '_blank')}
+                                  >
+                                    <Download className="h-3 w-3 mr-1" />
+                                    Download PDF
+                                  </Button>
+                                </div>
+                              )}
+                              {!design.png_image_url && !design.pdf_image_url && (
+                                <div className="col-span-2 text-center py-8 text-muted-foreground text-sm">
+                                  No images available
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Client Instructions */}
+                            {design.client_instructions && (
+                              <div className="mb-4">
+                                <Label className="text-sm font-medium text-foreground mb-2 block">
+                                  Client Instructions
+                                </Label>
+                                <div className="bg-background p-3 rounded border text-sm text-foreground whitespace-pre-wrap">
+                                  {design.client_instructions}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Design Details */}
+                            <div className="space-y-2 text-sm">
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Design ID:</span>
+                                <span className="text-foreground font-mono text-xs">{design.id.substring(0, 8)}...</span>
+                              </div>
+                              {design.design_data?.elements && (
+                                <div className="flex justify-between">
+                                  <span className="text-muted-foreground">Elements:</span>
+                                  <span className="text-foreground">
+                                    {Array.isArray(design.design_data.elements) 
+                                      ? design.design_data.elements.length 
+                                      : 0}
+                                  </span>
+                                </div>
+                              )}
+                              {design.design_data?.product && (
+                                <div className="flex justify-between">
+                                  <span className="text-muted-foreground">Product:</span>
+                                  <span className="text-foreground">
+                                    {design.design_data.product.name} ({design.design_data.product.size})
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
