@@ -50,6 +50,13 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
+      // Email-only authentication - phone login is not supported
+      if (!formData.email || !formData.email.includes('@')) {
+        toast.error('Please enter a valid email address');
+        setLoading(false);
+        return;
+      }
+
       await signIn(formData.email, formData.password);
       toast.success('Login successful!');
       router.push('/shop');
