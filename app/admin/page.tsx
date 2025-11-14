@@ -63,6 +63,25 @@ interface Product {
   updated_at: string;
 }
 
+interface OrderItem {
+  id: string;
+  product_id: string;
+  design_id: string | null;
+  quantity: number;
+  unit_price: number;
+  size: string | null;
+  color: string | null;
+  customization_details: any;
+  products?: {
+    name: string;
+    base_image_url: string;
+    image_urls: string[];
+  };
+  designs?: {
+    preview_url: string | null;
+  };
+}
+
 interface Order {
   id: string;
   orderNumber: string;
@@ -71,6 +90,18 @@ interface Order {
   totalAmount: number;
   itemCount: number;
   createdAt: string;
+  user_id?: string;
+  shipping_address?: any;
+  payment_status?: string;
+  payment_id?: string;
+  notes?: string;
+  updated_at?: string;
+  order_items?: OrderItem[];
+  profiles?: {
+    email: string;
+    full_name: string | null;
+    phone: string | null;
+  };
 }
 
 interface CorporateEnquiry {
@@ -186,6 +217,14 @@ function AdminDashboardContent() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState('all');
+  
+  // Order management state
+  const [orderSearchQuery, setOrderSearchQuery] = useState('');
+  const [orderStatusFilter, setOrderStatusFilter] = useState('all');
+  const [orderPaymentFilter, setOrderPaymentFilter] = useState('all');
+  const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [orderNotes, setOrderNotes] = useState<{ [key: string]: string }>({});
 
   // Predefined options for colors and sizes
   const predefinedColors = [
@@ -259,12 +298,17 @@ function AdminDashboardContent() {
           .select('*')
           .order('created_at', { ascending: false }),
         
-        // Fetch orders from database
+        // Fetch orders from database with related data
         supabase
           .from('orders')
           .select(`
             *,
-            profiles:user_id(email)
+            profiles:user_id(email, full_name, phone),
+            order_items:order_items(
+              *,
+              products:product_id(name, base_image_url, image_urls),
+              designs:design_id(preview_url)
+            )
           `)
           .order('created_at', { ascending: false }),
         
@@ -299,12 +343,29 @@ function AdminDashboardContent() {
         id: order.id,
         orderNumber: order.order_number,
         customerEmail: order.profiles?.email || 'Unknown',
-        status: order.status,
-        totalAmount: order.total_amount,
-        itemCount: 0, // This would need to be calculated from order_items
-        createdAt: order.created_at
+        status: order.status || 'pending',
+        totalAmount: parseFloat(order.total_amount || 0),
+        itemCount: order.order_items?.length || 0,
+        createdAt: order.created_at,
+        user_id: order.user_id,
+        shipping_address: order.shipping_address,
+        payment_status: order.payment_status || 'pending',
+        payment_id: order.payment_id,
+        notes: order.notes,
+        updated_at: order.updated_at,
+        order_items: order.order_items || [],
+        profiles: order.profiles
       }));
       setOrders(formattedOrders);
+      
+      // Initialize order notes
+      const notesMap: { [key: string]: string } = {};
+      formattedOrders.forEach((order: Order) => {
+        if (order.notes) {
+          notesMap[order.id] = order.notes;
+        }
+      });
+      setOrderNotes(notesMap);
 
       // Handle enquiries
       if (enquiriesResult.error) throw enquiriesResult.error;
@@ -1198,30 +1259,464 @@ function AdminDashboardContent() {
             {/* Orders Tab */}
             <TabsContent value="orders" className="space-y-6">
               <Card className="bg-card border-border">
-            <CardHeader>
-                  <CardTitle className="text-primary">Order Management</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                    {orders.map((order) => (
-                      <Card key={order.id} className="bg-secondary border-border">
-                        <CardContent className="p-4">
-                          <div className="flex items-center justify-between">
-                      <div>
-                              <h3 className="font-semibold text-foreground">#{order.orderNumber}</h3>
-                              <p className="text-sm text-muted-foreground">{order.customerEmail}</p>
-                              <p className="text-sm text-muted-foreground">{order.itemCount} items</p>
-                            </div>
-                            <div className="text-right">
-                              <p className="font-semibold text-primary">${order.totalAmount}</p>
-                              <Badge variant="outline" className="text-xs">{order.status}</Badge>
-                              <p className="text-sm text-muted-foreground">{order.createdAt}</p>
-                            </div>
-                      </div>
-                        </CardContent>
-                      </Card>
-                    ))}
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-primary">Order Management</CardTitle>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={loadDashboardData}
+                      >
+                        <RefreshCw className="h-4 w-4 mr-2" />
+                        Refresh
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          // Export orders to CSV
+                          const csv = [
+                            ['Order Number', 'Customer', 'Email', 'Status', 'Payment Status', 'Total', 'Items', 'Date'].join(','),
+                            ...orders.map(o => [
+                              o.orderNumber,
+                              o.profiles?.full_name || 'N/A',
+                              o.customerEmail,
+                              o.status,
+                              o.payment_status || 'pending',
+                              o.totalAmount,
+                              o.itemCount,
+                              new Date(o.createdAt).toLocaleDateString()
+                            ].join(','))
+                          ].join('\n');
+                          const blob = new Blob([csv], { type: 'text/csv' });
+                          const url = window.URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = `orders_${new Date().toISOString().split('T')[0]}.csv`;
+                          a.click();
+                          toast.success('Orders exported successfully');
+                        }}
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        Export
+                      </Button>
                     </div>
+                  </div>
+                  
+                  {/* Filters */}
+                  <div className="flex flex-col sm:flex-row gap-4 mt-4">
+                    <div className="flex-1">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          placeholder="Search by order number, customer name, or email..."
+                          value={orderSearchQuery}
+                          onChange={(e) => setOrderSearchQuery(e.target.value)}
+                          className="pl-10 bg-background border-border text-foreground"
+                        />
+                      </div>
+                    </div>
+                    <Select value={orderStatusFilter} onValueChange={setOrderStatusFilter}>
+                      <SelectTrigger className="w-full sm:w-40 bg-background border-border">
+                        <SelectValue placeholder="All Statuses" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Statuses</SelectItem>
+                        <SelectItem value="pending">Pending</SelectItem>
+                        <SelectItem value="confirmed">Confirmed</SelectItem>
+                        <SelectItem value="printing">Printing</SelectItem>
+                        <SelectItem value="shipped">Shipped</SelectItem>
+                        <SelectItem value="delivered">Delivered</SelectItem>
+                        <SelectItem value="cancelled">Cancelled</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select value={orderPaymentFilter} onValueChange={setOrderPaymentFilter}>
+                      <SelectTrigger className="w-full sm:w-40 bg-background border-border">
+                        <SelectValue placeholder="All Payments" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Payments</SelectItem>
+                        <SelectItem value="pending">Pending</SelectItem>
+                        <SelectItem value="paid">Paid</SelectItem>
+                        <SelectItem value="failed">Failed</SelectItem>
+                        <SelectItem value="refunded">Refunded</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {(() => {
+                      // Filter orders
+                      let filteredOrders = orders;
+                      
+                      if (orderSearchQuery) {
+                        const query = orderSearchQuery.toLowerCase();
+                        filteredOrders = filteredOrders.filter(o =>
+                          o.orderNumber.toLowerCase().includes(query) ||
+                          o.customerEmail.toLowerCase().includes(query) ||
+                          o.profiles?.full_name?.toLowerCase().includes(query) ||
+                          o.profiles?.phone?.includes(query)
+                        );
+                      }
+                      
+                      if (orderStatusFilter !== 'all') {
+                        filteredOrders = filteredOrders.filter(o => o.status === orderStatusFilter);
+                      }
+                      
+                      if (orderPaymentFilter !== 'all') {
+                        filteredOrders = filteredOrders.filter(o => (o.payment_status || 'pending') === orderPaymentFilter);
+                      }
+                      
+                      if (filteredOrders.length === 0) {
+                        return (
+                          <div className="text-center py-12">
+                            <ShoppingCart className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
+                            <h3 className="text-xl font-semibold text-foreground mb-2">No Orders Found</h3>
+                            <p className="text-muted-foreground">
+                              {orders.length === 0 
+                                ? 'No orders have been placed yet.'
+                                : 'Try adjusting your filters to see more orders.'}
+                            </p>
+                          </div>
+                        );
+                      }
+                      
+                      return filteredOrders.map((order) => {
+                        const isExpanded = expandedOrders.has(order.id);
+                        const toggleExpand = () => {
+                          const newExpanded = new Set(expandedOrders);
+                          if (isExpanded) {
+                            newExpanded.delete(order.id);
+                          } else {
+                            newExpanded.add(order.id);
+                          }
+                          setExpandedOrders(newExpanded);
+                        };
+                        
+                        const getStatusColor = (status: string) => {
+                          switch (status) {
+                            case 'pending': return 'bg-yellow-500/10 text-yellow-500 border-yellow-500';
+                            case 'confirmed': return 'bg-blue-500/10 text-blue-500 border-blue-500';
+                            case 'printing': return 'bg-purple-500/10 text-purple-500 border-purple-500';
+                            case 'shipped': return 'bg-indigo-500/10 text-indigo-500 border-indigo-500';
+                            case 'delivered': return 'bg-green-500/10 text-green-500 border-green-500';
+                            case 'cancelled': return 'bg-red-500/10 text-red-500 border-red-500';
+                            default: return 'bg-gray-500/10 text-gray-500 border-gray-500';
+                          }
+                        };
+                        
+                        const getPaymentStatusColor = (status: string) => {
+                          switch (status) {
+                            case 'paid': return 'bg-green-500/10 text-green-500 border-green-500';
+                            case 'pending': return 'bg-yellow-500/10 text-yellow-500 border-yellow-500';
+                            case 'failed': return 'bg-red-500/10 text-red-500 border-red-500';
+                            case 'refunded': return 'bg-orange-500/10 text-orange-500 border-orange-500';
+                            default: return 'bg-gray-500/10 text-gray-500 border-gray-500';
+                          }
+                        };
+                        
+                        return (
+                          <Card key={order.id} className="bg-secondary border-border">
+                            <CardContent className="p-4">
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-3 mb-2">
+                                    <h3 className="font-semibold text-foreground">#{order.orderNumber}</h3>
+                                    <Badge variant="outline" className={`text-xs ${getStatusColor(order.status)}`}>
+                                      {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
+                                    </Badge>
+                                    <Badge variant="outline" className={`text-xs ${getPaymentStatusColor(order.payment_status || 'pending')}`}>
+                                      {order.payment_status ? order.payment_status.charAt(0).toUpperCase() + order.payment_status.slice(1) : 'Pending'}
+                                    </Badge>
+                                  </div>
+                                  <div className="space-y-1">
+                                    <p className="text-sm text-foreground">
+                                      <span className="font-medium">{order.profiles?.full_name || 'Unknown Customer'}</span>
+                                      {order.profiles?.phone && <span className="text-muted-foreground"> • {order.profiles.phone}</span>}
+                                    </p>
+                                    <p className="text-sm text-muted-foreground">{order.customerEmail}</p>
+                                    <p className="text-sm text-muted-foreground">
+                                      {order.itemCount} {order.itemCount === 1 ? 'item' : 'items'} • 
+                                      {new Date(order.createdAt).toLocaleDateString('en-US', {
+                                        year: 'numeric',
+                                        month: 'short',
+                                        day: 'numeric',
+                                        hour: '2-digit',
+                                        minute: '2-digit'
+                                      })}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="text-right ml-4">
+                                  <p className="font-semibold text-primary text-lg">₹{order.totalAmount.toFixed(2)}</p>
+                                  <div className="flex gap-2 mt-2">
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={toggleExpand}
+                                    >
+                                      <Eye className="h-4 w-4 mr-1" />
+                                      {isExpanded ? 'Hide' : 'View'}
+                                    </Button>
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              {/* Expanded Order Details */}
+                              {isExpanded && (
+                                <div className="mt-4 pt-4 border-t border-border space-y-4">
+                                  {/* Order Items */}
+                                  {order.order_items && order.order_items.length > 0 && (
+                                    <div>
+                                      <h4 className="font-semibold text-foreground mb-3">Order Items</h4>
+                                      <div className="space-y-3">
+                                        {order.order_items.map((item) => (
+                                          <div key={item.id} className="flex gap-4 p-3 bg-background rounded-lg border border-border">
+                                            {item.products && (
+                                              <img
+                                                src={item.products.base_image_url || item.products.image_urls?.[0] || '/images/products/placeholder.png'}
+                                                alt={item.products.name}
+                                                className="w-16 h-16 object-cover rounded border"
+                                              />
+                                            )}
+                                            <div className="flex-1">
+                                              <h5 className="font-medium text-foreground">{item.products?.name || 'Unknown Product'}</h5>
+                                              <div className="flex flex-wrap gap-2 mt-1">
+                                                {item.size && (
+                                                  <Badge variant="outline" className="text-xs">Size: {item.size}</Badge>
+                                                )}
+                                                {item.color && (
+                                                  <Badge variant="outline" className="text-xs">Color: {item.color}</Badge>
+                                                )}
+                                                <Badge variant="outline" className="text-xs">Qty: {item.quantity}</Badge>
+                                              </div>
+                                              {item.designs?.preview_url && (
+                                                <div className="mt-2">
+                                                  <p className="text-xs text-muted-foreground mb-1">Custom Design:</p>
+                                                  <img
+                                                    src={item.designs.preview_url}
+                                                    alt="Design preview"
+                                                    className="w-20 h-20 object-cover rounded border"
+                                                  />
+                                                </div>
+                                              )}
+                                            </div>
+                                            <div className="text-right">
+                                              <p className="font-semibold text-foreground">₹{(item.unit_price * item.quantity).toFixed(2)}</p>
+                                              <p className="text-xs text-muted-foreground">₹{item.unit_price.toFixed(2)} each</p>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                  
+                                  {/* Shipping Address */}
+                                  {order.shipping_address && (
+                                    <div>
+                                      <h4 className="font-semibold text-foreground mb-2">Shipping Address</h4>
+                                      <div className="p-3 bg-background rounded-lg border border-border">
+                                        <p className="text-sm text-foreground">{order.shipping_address.full_name}</p>
+                                        <p className="text-sm text-muted-foreground">{order.shipping_address.address}</p>
+                                        {order.shipping_address.address_line_2 && (
+                                          <p className="text-sm text-muted-foreground">{order.shipping_address.address_line_2}</p>
+                                        )}
+                                        <p className="text-sm text-muted-foreground">
+                                          {order.shipping_address.city}, {order.shipping_address.state} {order.shipping_address.pincode}
+                                        </p>
+                                        {order.shipping_address.phone && (
+                                          <p className="text-sm text-muted-foreground">Phone: {order.shipping_address.phone}</p>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+                                  
+                                  {/* Order Actions */}
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                      <Label className="text-sm font-medium text-foreground mb-2 block">Order Status</Label>
+                                      <Select
+                                        value={order.status}
+                                        onValueChange={async (newStatus) => {
+                                          try {
+                                            const { error } = await supabase
+                                              .from('orders')
+                                              .update({
+                                                status: newStatus,
+                                                updated_at: new Date().toISOString()
+                                              })
+                                              .eq('id', order.id);
+                                            
+                                            if (error) throw error;
+                                            
+                                            setOrders(prev =>
+                                              prev.map(o =>
+                                                o.id === order.id
+                                                  ? { ...o, status: newStatus, updated_at: new Date().toISOString() }
+                                                  : o
+                                              )
+                                            );
+                                            toast.success('Order status updated');
+                                          } catch (error: any) {
+                                            toast.error('Failed to update order status');
+                                          }
+                                        }}
+                                      >
+                                        <SelectTrigger className="bg-background border-border">
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="pending">Pending</SelectItem>
+                                          <SelectItem value="confirmed">Confirmed</SelectItem>
+                                          <SelectItem value="printing">Printing</SelectItem>
+                                          <SelectItem value="shipped">Shipped</SelectItem>
+                                          <SelectItem value="delivered">Delivered</SelectItem>
+                                          <SelectItem value="cancelled">Cancelled</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                    
+                                    <div>
+                                      <Label className="text-sm font-medium text-foreground mb-2 block">Payment Status</Label>
+                                      <Select
+                                        value={order.payment_status || 'pending'}
+                                        onValueChange={async (newStatus) => {
+                                          try {
+                                            const { error } = await supabase
+                                              .from('orders')
+                                              .update({
+                                                payment_status: newStatus,
+                                                updated_at: new Date().toISOString()
+                                              })
+                                              .eq('id', order.id);
+                                            
+                                            if (error) throw error;
+                                            
+                                            setOrders(prev =>
+                                              prev.map(o =>
+                                                o.id === order.id
+                                                  ? { ...o, payment_status: newStatus, updated_at: new Date().toISOString() }
+                                                  : o
+                                              )
+                                            );
+                                            toast.success('Payment status updated');
+                                          } catch (error: any) {
+                                            toast.error('Failed to update payment status');
+                                          }
+                                        }}
+                                      >
+                                        <SelectTrigger className="bg-background border-border">
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="pending">Pending</SelectItem>
+                                          <SelectItem value="paid">Paid</SelectItem>
+                                          <SelectItem value="failed">Failed</SelectItem>
+                                          <SelectItem value="refunded">Refunded</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                  </div>
+                                  
+                                  {/* Order Notes */}
+                                  <div>
+                                    <Label className="text-sm font-medium text-foreground mb-2 block">Order Notes</Label>
+                                    <Textarea
+                                      value={orderNotes[order.id] || ''}
+                                      onChange={(e) => setOrderNotes({ ...orderNotes, [order.id]: e.target.value })}
+                                      placeholder="Add notes about this order..."
+                                      rows={3}
+                                      className="bg-background border-border text-foreground"
+                                    />
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="mt-2"
+                                      onClick={async () => {
+                                        try {
+                                          const { error } = await supabase
+                                            .from('orders')
+                                            .update({
+                                              notes: orderNotes[order.id] || null,
+                                              updated_at: new Date().toISOString()
+                                            })
+                                            .eq('id', order.id);
+                                          
+                                          if (error) throw error;
+                                          toast.success('Notes saved');
+                                        } catch (error: any) {
+                                          toast.error('Failed to save notes');
+                                        }
+                                      }}
+                                    >
+                                      <Save className="h-4 w-4 mr-2" />
+                                      Save Notes
+                                    </Button>
+                                  </div>
+                                  
+                                  {/* Payment Info */}
+                                  {order.payment_id && (
+                                    <div>
+                                      <h4 className="font-semibold text-foreground mb-2">Payment Information</h4>
+                                      <div className="p-3 bg-background rounded-lg border border-border">
+                                        <p className="text-sm text-muted-foreground">Payment ID: <span className="text-foreground font-mono">{order.payment_id}</span></p>
+                                      </div>
+                                    </div>
+                                  )}
+                                  
+                                  {/* Action Buttons */}
+                                  <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => {
+                                        const subject = `Order ${order.orderNumber} - Update`;
+                                        const body = `Hi ${order.profiles?.full_name || 'Customer'},\n\nRegarding your order ${order.orderNumber}...\n\nBest regards,\nInfineight Team`;
+                                        window.open(`mailto:${order.customerEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`);
+                                      }}
+                                    >
+                                      <Mail className="h-4 w-4 mr-2" />
+                                      Email Customer
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => {
+                                        // Print order details
+                                        const printWindow = window.open('', '_blank');
+                                        if (printWindow) {
+                                          printWindow.document.write(`
+                                            <html>
+                                              <head><title>Order ${order.orderNumber}</title></head>
+                                              <body style="font-family: Arial, sans-serif; padding: 20px;">
+                                                <h1>Order ${order.orderNumber}</h1>
+                                                <p><strong>Customer:</strong> ${order.profiles?.full_name || 'N/A'}</p>
+                                                <p><strong>Email:</strong> ${order.customerEmail}</p>
+                                                <p><strong>Status:</strong> ${order.status}</p>
+                                                <p><strong>Total:</strong> ₹${order.totalAmount.toFixed(2)}</p>
+                                                <p><strong>Date:</strong> ${new Date(order.createdAt).toLocaleString()}</p>
+                                              </body>
+                                            </html>
+                                          `);
+                                          printWindow.document.close();
+                                          printWindow.print();
+                                        }
+                                      }}
+                                    >
+                                      <FileText className="h-4 w-4 mr-2" />
+                                      Print
+                                    </Button>
+                                  </div>
+                                </div>
+                              )}
+                            </CardContent>
+                          </Card>
+                        );
+                      });
+                    })()}
+                  </div>
                 </CardContent>
               </Card>
             </TabsContent>
