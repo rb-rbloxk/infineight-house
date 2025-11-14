@@ -24,7 +24,11 @@ import {
   CheckCircle,
   Info,
   TrendingUp,
-  Loader2
+  Loader2,
+  Upload,
+  X,
+  File,
+  Image as ImageIcon
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
@@ -38,6 +42,14 @@ interface BulkOrderItem {
   quantity: number;
   customization: boolean;
   rushOrder: boolean;
+}
+
+interface UploadedFile {
+  id: string;
+  file: File;
+  url?: string;
+  type: 'image' | 'document';
+  uploading: boolean;
 }
 
 interface PricingTier {
@@ -81,6 +93,8 @@ function BulkCalculatorPageContent() {
   const [discountCode, setDiscountCode] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isRequesting, setIsRequesting] = useState(false);
+  const [uploadingFiles, setUploadingFiles] = useState(false);
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
 
   const products = [
     { name: 'Classic T-Shirt', category: 'Apparel', basePrice: 399 },
@@ -396,6 +410,95 @@ function BulkCalculatorPageContent() {
     }
   };
 
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    const allowedImageTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+    const allowedDocTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain'];
+
+    const newFiles: UploadedFile[] = files.map(file => {
+      const isImage = allowedImageTypes.includes(file.type);
+      const isDocument = allowedDocTypes.includes(file.type);
+
+      if (!isImage && !isDocument) {
+        toast.error(`${file.name} is not a supported file type. Please upload images or documents.`);
+        return null;
+      }
+
+      if (file.size > maxSize) {
+        toast.error(`${file.name} is too large. Maximum size is 10MB.`);
+        return null;
+      }
+
+      return {
+        id: `${Date.now()}-${Math.random()}`,
+        file,
+        type: isImage ? 'image' : 'document',
+        uploading: false,
+      };
+    }).filter((f): f is UploadedFile => f !== null);
+
+    if (newFiles.length === 0) return;
+
+    setUploadedFiles(prev => [...prev, ...newFiles]);
+    await uploadFiles(newFiles);
+  };
+
+  const uploadFiles = async (files: UploadedFile[]) => {
+    setUploadingFiles(true);
+
+    try {
+      const uploadPromises = files.map(async (fileObj) => {
+        const fileExt = fileObj.file.name.split('.').pop();
+        const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+        const filePath = `corporate-enquiries/${fileName}`;
+
+        // Mark as uploading
+        setUploadedFiles(prev =>
+          prev.map(f => f.id === fileObj.id ? { ...f, uploading: true } : f)
+        );
+
+        // Upload to Supabase Storage
+        const { data, error } = await supabase.storage
+          .from('corporate-uploads')
+          .upload(filePath, fileObj.file, {
+            cacheControl: '3600',
+            upsert: false
+          });
+
+        if (error) throw error;
+
+        // Get public URL
+        const { data: urlData } = supabase.storage
+          .from('corporate-uploads')
+          .getPublicUrl(filePath);
+
+        // Update with URL
+        setUploadedFiles(prev =>
+          prev.map(f => f.id === fileObj.id ? { ...f, url: urlData.publicUrl, uploading: false } : f)
+        );
+
+        return urlData.publicUrl;
+      });
+
+      await Promise.all(uploadPromises);
+      toast.success('Files uploaded successfully!');
+    } catch (error: any) {
+      console.error('Upload error:', error);
+      toast.error('Failed to upload files. Please try again.');
+      // Remove failed files
+      setUploadedFiles(prev => prev.filter(f => !files.some(uf => uf.id === f.id)));
+    } finally {
+      setUploadingFiles(false);
+    }
+  };
+
+  const removeFile = (id: string) => {
+    setUploadedFiles(prev => prev.filter(f => f.id !== id));
+  };
+
   const requestConsultation = async () => {
     if (!companyInfo.name || !companyInfo.email || !companyInfo.phone) {
       toast.error('Please fill in company name, email, and phone to request consultation');
@@ -411,6 +514,16 @@ function BulkCalculatorPageContent() {
     try {
       const totals = calculateTotals();
       
+      // Prepare attachments array
+      const attachments = uploadedFiles
+        .filter(f => f.url)
+        .map(f => ({
+          url: f.url,
+          name: f.file.name,
+          type: f.type,
+          size: f.file.size,
+        }));
+      
       // Save consultation request to corporate_enquiries table
       const { error } = await supabase
         .from('corporate_enquiries')
@@ -422,11 +535,13 @@ function BulkCalculatorPageContent() {
           event_date: companyInfo.eventDate || null,
           budget_range: companyInfo.budget || null,
           requirements: companyInfo.requirements || '',
-          order_details: JSON.stringify({
+          attachments: attachments.length > 0 ? attachments : null,
+          logo_url: attachments.find(a => a.type === 'image')?.url || null,
+          order_details: {
             items: orderItems,
             totals: totals,
             timestamp: new Date().toISOString()
-          }),
+          },
           status: 'pending'
         });
 
@@ -436,8 +551,16 @@ function BulkCalculatorPageContent() {
         description: 'Our team will contact you within 24 hours'
       });
 
-      // Optionally send email notification
-      // You can implement this with a backend API route
+      // Reset form
+      setUploadedFiles([]);
+      setCompanyInfo({
+        name: '',
+        email: '',
+        phone: '',
+        eventDate: '',
+        budget: '',
+        requirements: ''
+      });
 
     } catch (error: any) {
       console.error('Error requesting consultation:', error);
@@ -670,6 +793,81 @@ function BulkCalculatorPageContent() {
                       placeholder="Any special requirements or notes..."
                     />
                   </div>
+
+                  {/* File Upload Section */}
+                  <div>
+                    <Label className="text-foreground mb-2 block">
+                      Upload Requirements (Optional)
+                    </Label>
+                    <p className="text-sm text-muted-foreground mb-3">
+                      Upload logos, design files, documents, or reference images. Max 10MB per file.
+                    </p>
+                    
+                    <div className="border-2 border-dashed border-border rounded-lg p-6">
+                      <input
+                        type="file"
+                        id="file-upload-bulk"
+                        multiple
+                        accept="image/*,.pdf,.doc,.docx,.txt"
+                        onChange={handleFileSelect}
+                        className="hidden"
+                        disabled={uploadingFiles}
+                      />
+                      <label
+                        htmlFor="file-upload-bulk"
+                        className="flex flex-col items-center justify-center cursor-pointer"
+                      >
+                        <Upload className="h-10 w-10 text-muted-foreground mb-2" />
+                        <span className="text-sm font-medium text-foreground mb-1">
+                          Click to upload or drag and drop
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          Images (JPG, PNG, GIF, WEBP) or Documents (PDF, DOC, DOCX, TXT)
+                        </span>
+                      </label>
+                    </div>
+
+                    {/* Uploaded Files Preview */}
+                    {uploadedFiles.length > 0 && (
+                      <div className="mt-4 space-y-2">
+                        {uploadedFiles.map((fileObj) => (
+                          <div
+                            key={fileObj.id}
+                            className="flex items-center justify-between p-3 bg-secondary rounded-lg border border-border"
+                          >
+                            <div className="flex items-center gap-3 flex-1 min-w-0">
+                              {fileObj.type === 'image' ? (
+                                <ImageIcon className="h-5 w-5 text-primary flex-shrink-0" />
+                              ) : (
+                                <File className="h-5 w-5 text-primary flex-shrink-0" />
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-foreground truncate">
+                                  {fileObj.file.name}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {(fileObj.file.size / 1024).toFixed(2)} KB
+                                  {fileObj.uploading && ' • Uploading...'}
+                                  {fileObj.url && ' • Uploaded ✓'}
+                                </p>
+                              </div>
+                            </div>
+                            {!fileObj.uploading && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => removeFile(fileObj.id)}
+                                className="text-red-500 hover:text-red-700 flex-shrink-0"
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             </div>
@@ -733,7 +931,7 @@ function BulkCalculatorPageContent() {
                     </Button>
                     <Button 
                       onClick={requestConsultation}
-                      disabled={isRequesting}
+                      disabled={isRequesting || uploadingFiles}
                       variant="outline"
                       className="w-full"
                     >

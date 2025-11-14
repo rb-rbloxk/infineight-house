@@ -8,9 +8,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card } from '@/components/ui/card';
-import { Users, Gift, Award, TrendingUp, CheckCircle } from 'lucide-react';
+import { Users, Gift, Award, TrendingUp, CheckCircle, Upload, X, File, Image as ImageIcon } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
+import Image from 'next/image';
 
 export default function CorporatePage() {
   return (
@@ -20,8 +21,19 @@ export default function CorporatePage() {
   );
 }
 
+interface UploadedFile {
+  id: string;
+  file: File;
+  url?: string;
+  type: 'image' | 'document';
+  uploading: boolean;
+}
+
 function CorporatePageContent() {
+  const { user } = useAuth();
   const [submitting, setSubmitting] = useState(false);
+  const [uploadingFiles, setUploadingFiles] = useState(false);
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [formData, setFormData] = useState({
     companyName: '',
     contactPerson: '',
@@ -33,15 +45,115 @@ function CorporatePageContent() {
     message: '',
   });
 
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    const allowedImageTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+    const allowedDocTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain'];
+
+    const newFiles: UploadedFile[] = files.map(file => {
+      const isImage = allowedImageTypes.includes(file.type);
+      const isDocument = allowedDocTypes.includes(file.type);
+
+      if (!isImage && !isDocument) {
+        toast.error(`${file.name} is not a supported file type. Please upload images or documents.`);
+        return null;
+      }
+
+      if (file.size > maxSize) {
+        toast.error(`${file.name} is too large. Maximum size is 10MB.`);
+        return null;
+      }
+
+      return {
+        id: `${Date.now()}-${Math.random()}`,
+        file,
+        type: isImage ? 'image' : 'document',
+        uploading: false,
+      };
+    }).filter((f): f is UploadedFile => f !== null);
+
+    if (newFiles.length === 0) return;
+
+    setUploadedFiles(prev => [...prev, ...newFiles]);
+    await uploadFiles(newFiles);
+  };
+
+  const uploadFiles = async (files: UploadedFile[]) => {
+    setUploadingFiles(true);
+
+    try {
+      const uploadPromises = files.map(async (fileObj) => {
+        const fileExt = fileObj.file.name.split('.').pop();
+        const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+        const filePath = `corporate-enquiries/${fileName}`;
+
+        // Mark as uploading
+        setUploadedFiles(prev =>
+          prev.map(f => f.id === fileObj.id ? { ...f, uploading: true } : f)
+        );
+
+        // Upload to Supabase Storage
+        const { data, error } = await supabase.storage
+          .from('corporate-uploads')
+          .upload(filePath, fileObj.file, {
+            cacheControl: '3600',
+            upsert: false
+          });
+
+        if (error) throw error;
+
+        // Get public URL
+        const { data: urlData } = supabase.storage
+          .from('corporate-uploads')
+          .getPublicUrl(filePath);
+
+        // Update with URL
+        setUploadedFiles(prev =>
+          prev.map(f => f.id === fileObj.id ? { ...f, url: urlData.publicUrl, uploading: false } : f)
+        );
+
+        return urlData.publicUrl;
+      });
+
+      await Promise.all(uploadPromises);
+      toast.success('Files uploaded successfully!');
+    } catch (error: any) {
+      console.error('Upload error:', error);
+      toast.error('Failed to upload files. Please try again.');
+      // Remove failed files
+      setUploadedFiles(prev => prev.filter(f => !files.some(uf => uf.id === f.id)));
+    } finally {
+      setUploadingFiles(false);
+    }
+  };
+
+  const removeFile = (id: string) => {
+    setUploadedFiles(prev => prev.filter(f => f.id !== id));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
 
     try {
+      // Prepare attachments array
+      const attachments = uploadedFiles
+        .filter(f => f.url)
+        .map(f => ({
+          url: f.url,
+          name: f.file.name,
+          type: f.type,
+          size: f.file.size,
+        }));
+
       const { error } = await supabase
         .from('corporate_enquiries')
         .insert([
           {
+            user_id: user?.id || null,
             company_name: formData.companyName,
             contact_person: formData.contactPerson,
             email: formData.email,
@@ -50,6 +162,8 @@ function CorporatePageContent() {
             quantity: formData.quantity ? parseInt(formData.quantity) : null,
             budget_range: formData.budgetRange,
             message: formData.message,
+            attachments: attachments.length > 0 ? attachments : null,
+            logo_url: attachments.find(a => a.type === 'image')?.url || null,
             status: 'new',
           },
         ]);
@@ -67,6 +181,7 @@ function CorporatePageContent() {
         budgetRange: '',
         message: '',
       });
+      setUploadedFiles([]);
     } catch (error: any) {
       toast.error('Failed to submit enquiry. Please try again.');
     } finally {
@@ -287,10 +402,85 @@ function CorporatePageContent() {
                   />
                 </div>
 
+                {/* File Upload Section */}
+                <div>
+                  <Label className="text-foreground mb-2 block">
+                    Upload Requirements (Optional)
+                  </Label>
+                  <p className="text-sm text-muted-foreground mb-3">
+                    Upload logos, design files, documents, or reference images. Max 10MB per file.
+                  </p>
+                  
+                  <div className="border-2 border-dashed border-border rounded-lg p-6">
+                    <input
+                      type="file"
+                      id="file-upload"
+                      multiple
+                      accept="image/*,.pdf,.doc,.docx,.txt"
+                      onChange={handleFileSelect}
+                      className="hidden"
+                      disabled={uploadingFiles}
+                    />
+                    <label
+                      htmlFor="file-upload"
+                      className="flex flex-col items-center justify-center cursor-pointer"
+                    >
+                      <Upload className="h-10 w-10 text-muted-foreground mb-2" />
+                      <span className="text-sm font-medium text-foreground mb-1">
+                        Click to upload or drag and drop
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        Images (JPG, PNG, GIF, WEBP) or Documents (PDF, DOC, DOCX, TXT)
+                      </span>
+                    </label>
+                  </div>
+
+                  {/* Uploaded Files Preview */}
+                  {uploadedFiles.length > 0 && (
+                    <div className="mt-4 space-y-2">
+                      {uploadedFiles.map((fileObj) => (
+                        <div
+                          key={fileObj.id}
+                          className="flex items-center justify-between p-3 bg-secondary rounded-lg border border-border"
+                        >
+                          <div className="flex items-center gap-3 flex-1 min-w-0">
+                            {fileObj.type === 'image' ? (
+                              <ImageIcon className="h-5 w-5 text-primary flex-shrink-0" />
+                            ) : (
+                              <File className="h-5 w-5 text-primary flex-shrink-0" />
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-foreground truncate">
+                                {fileObj.file.name}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {(fileObj.file.size / 1024).toFixed(2)} KB
+                                {fileObj.uploading && ' • Uploading...'}
+                                {fileObj.url && ' • Uploaded ✓'}
+                              </p>
+                            </div>
+                          </div>
+                          {!fileObj.uploading && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeFile(fileObj.id)}
+                              className="text-red-500 hover:text-red-700 flex-shrink-0"
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 <Button
                   type="submit"
                   className="w-full bg-primary hover:bg-primary/90 text-primary-foreground py-3 text-lg font-medium"
-                  disabled={submitting}
+                  disabled={submitting || uploadingFiles}
                 >
                   {submitting ? 'Submitting...' : 'Submit Enquiry'}
                 </Button>
