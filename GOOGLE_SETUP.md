@@ -1,11 +1,12 @@
-# Google Analytics & Google Merchant Center Setup Guide
+# Google Analytics, Google Tag Manager & Google Merchant Center Setup Guide
 
-This guide will help you set up Google Analytics 4 (GA4) and Google Merchant Center for your Infineight e-commerce store.
+This guide will help you set up Google Analytics 4 (GA4), Google Tag Manager (GTM), and Google Merchant Center for your Infineight e-commerce store.
 
 ## Prerequisites
 
 - Google account
 - Access to Google Analytics
+- Access to Google Tag Manager (optional but recommended)
 - Access to Google Merchant Center
 - Your website domain (e.g., https://infineight.house)
 
@@ -36,6 +37,7 @@ This guide will help you set up Google Analytics 4 (GA4) and Google Merchant Cen
 
 ```env
 NEXT_PUBLIC_GA_MEASUREMENT_ID=G-XXXXXXXXXX
+NEXT_PUBLIC_GTM_ID=GTM-XXXXXXX
 NEXT_PUBLIC_SITE_URL=https://infineight.house
 ```
 
@@ -49,7 +51,54 @@ NEXT_PUBLIC_SITE_URL=https://infineight.house
 3. In Google Analytics, go to **Reports** > **Realtime**
 4. You should see your visit appear within a few seconds
 
-## Part 2: Google Merchant Center Setup
+## Part 2: Google Tag Manager (GTM) Setup
+
+Google Tag Manager allows you to manage and deploy marketing tags without modifying code. It's recommended for advanced tracking and tag management.
+
+### Step 1: Create a GTM Container
+
+1. Go to [Google Tag Manager](https://tagmanager.google.com/)
+2. Click **Create Account** (if you don't have one)
+3. Fill in the account details:
+   - **Account Name**: Infineight (or your preferred name)
+   - **Country**: Select your country
+   - **Container Name**: infineight.house
+   - **Target Platform**: Web
+4. Click **Create**
+
+### Step 2: Get Your GTM Container ID
+
+After creating the container, you'll see your Container ID in the format `GTM-XXXXXXX`. Copy this ID.
+
+### Step 3: Add GTM Container ID to Environment Variables
+
+The GTM Container ID should already be in your `.env.local` file (added in Part 1, Step 3):
+
+```env
+NEXT_PUBLIC_GTM_ID=GTM-XXXXXXX
+```
+
+Replace `GTM-XXXXXXX` with your actual Container ID.
+
+### Step 4: Configure GA4 in GTM (Recommended)
+
+Instead of installing GA4 directly, you can manage it through GTM:
+
+1. In GTM, go to **Tags** > **New**
+2. Click **Tag Configuration** > **Google Analytics: GA4 Configuration**
+3. Enter your **Measurement ID** (from Part 1, Step 2)
+4. Set **Triggering** to **All Pages**
+5. Click **Save** and **Submit** your changes
+
+### Step 5: Test GTM Installation
+
+1. Use the GTM Preview mode to test your setup
+2. Visit your website and check that tags are firing correctly
+3. Verify in Google Analytics that data is being received
+
+**Note**: The application supports both direct GA4 installation and GTM. If you use GTM, you can manage GA4 and other tags through the GTM interface without code changes.
+
+## Part 3: Google Merchant Center Setup
 
 ### Step 1: Create a Merchant Center Account
 
@@ -66,8 +115,8 @@ NEXT_PUBLIC_SITE_URL=https://infineight.house
 1. In Merchant Center, go to **Settings** > **Website**
 2. Choose a verification method:
    - **HTML tag**: Add the provided meta tag to your site
-   - **Google Analytics**: Use your GA4 property
-   - **Google Tag Manager**: If you're using GTM
+   - **Google Analytics**: Use your GA4 property (G-XXXXXXXXXX)
+   - **Google Tag Manager**: Use your GTM Container ID (GTM-XXXXXXX) if configured
 3. Complete verification (may take a few hours)
 
 ### Step 3: Set Up Product Feed
@@ -142,10 +191,12 @@ This helps Google understand your products better and may improve search visibil
 
 ### Analytics Not Working
 
-1. Check that `NEXT_PUBLIC_GA_MEASUREMENT_ID` is set correctly
-2. Verify the ID format (should start with `G-`)
-3. Check browser console for errors
-4. Use Google Tag Assistant browser extension to debug
+1. Check that `NEXT_PUBLIC_GA_MEASUREMENT_ID` is set correctly (if using direct GA4)
+2. Check that `NEXT_PUBLIC_GTM_ID` is set correctly (if using GTM)
+3. Verify the GA4 ID format (should start with `G-`)
+4. Verify the GTM ID format (should start with `GTM-`)
+5. Check browser console for errors
+6. Use Google Tag Assistant browser extension to debug
 
 ### Merchant Center Feed Issues
 
@@ -181,9 +232,11 @@ This should return an XML file with all your products.
 ## Additional Resources
 
 - [Google Analytics Help](https://support.google.com/analytics)
+- [Google Tag Manager Help](https://support.google.com/tagmanager)
 - [Google Merchant Center Help](https://support.google.com/merchants)
 - [Product Data Specification](https://support.google.com/merchants/answer/7052112)
 - [GA4 E-commerce Events](https://developers.google.com/analytics/devguides/collection/ga4/ecommerce)
+- [GTM Data Layer Guide](https://developers.google.com/tag-manager/devguide)
 
 ## Support
 
