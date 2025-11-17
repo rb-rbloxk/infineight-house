@@ -2,12 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { supabase } from '@/lib/supabase';
 
-const PHONEPE_MERCHANT_ID = process.env.PHONEPE_MERCHANT_ID || '';
-const PHONEPE_SALT_KEY = process.env.PHONEPE_SALT_KEY || '';
-const PHONEPE_SALT_INDEX = process.env.PHONEPE_SALT_INDEX || '1';
+// Note: Environment variables are read at runtime in the handler function
+// to ensure they're available in serverless environments like Vercel
 
 export async function POST(req: NextRequest) {
   try {
+    // Get credentials at runtime
+    const clientId = process.env.PHONEPE_CLIENT_ID || process.env.PHONEPE_MERCHANT_ID || '';
+    const clientSecret = process.env.PHONEPE_CLIENT_SECRET || process.env.PHONEPE_SALT_KEY || '';
+    const saltIndex = process.env.PHONEPE_CLIENT_VERSION || process.env.PHONEPE_SALT_INDEX || '1';
+
     const body = await req.json();
     const { response } = body;
 
@@ -31,11 +35,16 @@ export async function POST(req: NextRequest) {
     }
 
     // Verify signature
-    const stringToVerify = `${response}/pg/v1/status/${PHONEPE_MERCHANT_ID}${PHONEPE_SALT_KEY}`;
+    // Note: For PhonePe, the merchantId in the callback verification is the Client ID
+    const stringToVerify = `${response}/pg/v1/status/${clientId}${clientSecret}`;
     const sha256Hash = crypto.createHash('sha256').update(stringToVerify).digest('hex');
-    const expectedXVerify = `${sha256Hash}###${PHONEPE_SALT_INDEX}`;
+    const expectedXVerify = `${sha256Hash}###${saltIndex}`;
 
     if (xVerify !== expectedXVerify) {
+      console.error('PhonePe callback signature verification failed:', {
+        received: xVerify.substring(0, 20) + '...',
+        expected: expectedXVerify.substring(0, 20) + '...',
+      });
       return NextResponse.json(
         { error: 'Invalid signature' },
         { status: 400 }

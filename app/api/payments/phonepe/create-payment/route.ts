@@ -7,16 +7,18 @@ import crypto from 'crypto';
 export async function POST(req: NextRequest) {
   try {
     // Validate PhonePe credentials at runtime
-    const merchantId = process.env.PHONEPE_MERCHANT_ID;
-    const saltKey = process.env.PHONEPE_SALT_KEY;
-    const saltIndex = process.env.PHONEPE_SALT_INDEX || '1';
+    // Support both old format (MERCHANT_ID/SALT_KEY) and new format (CLIENT_ID/CLIENT_SECRET)
+    // For PhonePe API, Client ID is used as merchantId
+    const clientId = process.env.PHONEPE_CLIENT_ID || process.env.PHONEPE_MERCHANT_ID;
+    const clientSecret = process.env.PHONEPE_CLIENT_SECRET || process.env.PHONEPE_SALT_KEY;
+    const saltIndex = process.env.PHONEPE_CLIENT_VERSION || process.env.PHONEPE_SALT_INDEX || '1';
     
-    if (!merchantId || !saltKey) {
+    if (!clientId || !clientSecret) {
       console.error('PhonePe credentials missing:', {
-        hasMerchantId: !!merchantId,
-        hasSaltKey: !!saltKey,
-        merchantIdLength: merchantId?.length || 0,
-        saltKeyLength: saltKey?.length || 0,
+        hasClientId: !!clientId,
+        hasClientSecret: !!clientSecret,
+        clientIdLength: clientId?.length || 0,
+        clientSecretLength: clientSecret?.length || 0,
       });
       return NextResponse.json(
         { error: 'PhonePe credentials are not configured. Please check your environment variables.' },
@@ -38,9 +40,12 @@ export async function POST(req: NextRequest) {
     const callbackUrl = `${siteUrl}/api/payments/phonepe/callback`;
     const redirectUrlFinal = redirectUrl || `${siteUrl}/payment/success?order_id=${orderId}`;
 
-    // Determine the correct PhonePe URL (use test URL if PHONEPE_BASE_URL is set, or if not in production)
+    // Determine the correct PhonePe URL
+    // For test mode, use sandbox URL; for production, use production URL
     const baseUrl = process.env.PHONEPE_BASE_URL;
-    const isProduction = process.env.NODE_ENV === 'production';
+    const isProduction = process.env.NODE_ENV === 'production' && 
+                         !baseUrl?.includes('sandbox') &&
+                         !baseUrl?.includes('preprod');
     const apiUrl = baseUrl || (
       isProduction
         ? 'https://api.phonepe.com/apis/hermes'
@@ -48,8 +53,9 @@ export async function POST(req: NextRequest) {
     );
 
     // Create payment request payload
+    // Note: merchantId should be the Client ID from PhonePe dashboard
     const payload = {
-      merchantId: merchantId,
+      merchantId: clientId, // Use Client ID as merchantId
       merchantTransactionId: orderId,
       merchantUserId: metadata?.userId || 'USER_' + Date.now(),
       amount: Math.round(amount * 100), // Convert to paise
@@ -66,18 +72,20 @@ export async function POST(req: NextRequest) {
     const base64Payload = Buffer.from(JSON.stringify(payload)).toString('base64');
 
     // Create X-VERIFY header (SHA256 hash)
-    const stringToHash = `${base64Payload}/pg/v1/pay${saltKey}`;
+    // Format: SHA256(base64Payload + /pg/v1/pay + saltKey) + ### + saltIndex
+    const stringToHash = `${base64Payload}/pg/v1/pay${clientSecret}`;
     const sha256Hash = crypto.createHash('sha256').update(stringToHash).digest('hex');
     const xVerify = `${sha256Hash}###${saltIndex}`;
 
     // Log for debugging (remove sensitive data in production)
     console.log('PhonePe Payment Request:', {
       url: apiUrl,
-      merchantId: merchantId.substring(0, 10) + '...',
-      hasSaltKey: !!saltKey,
+      merchantId: clientId.substring(0, 10) + '...',
+      hasSaltKey: !!clientSecret,
       saltIndex,
       amount: payload.amount,
       orderId,
+      environment: isProduction ? 'PRODUCTION' : 'SANDBOX',
     });
 
     // Make request to PhonePe API
@@ -101,7 +109,7 @@ export async function POST(req: NextRequest) {
         statusText: response.statusText,
         response: responseData,
         url: apiUrl,
-        merchantId: merchantId.substring(0, 10) + '...',
+        merchantId: clientId.substring(0, 10) + '...',
       });
       
       // Provide more specific error messages
@@ -121,10 +129,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Extract redirect URL from response
+    const redirectUrlFromResponse = responseData.data?.instrumentResponse?.redirectInfo?.url;
+    
+    if (!redirectUrlFromResponse) {
+      console.error('PhonePe response missing redirect URL:', responseData);
+      return NextResponse.json(
+        { error: 'PhonePe did not return a payment URL' },
+        { status: 500 }
+      );
+    }
+
     // Return the redirect URL
     return NextResponse.json({
       success: true,
-      redirectUrl: responseData.data.instrumentResponse.redirectInfo.url,
+      redirectUrl: redirectUrlFromResponse,
       merchantTransactionId: orderId,
     });
   } catch (error: any) {
@@ -135,4 +154,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-
