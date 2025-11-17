@@ -71,7 +71,7 @@ export default function ShopPage() {
       setAllProducts(data);
       // Set initial price range based on products
       if (data.length > 0) {
-        const prices = data.map(p => parseFloat(p.base_price.toString()));
+        const prices = data.map((p: Product) => parseFloat(p.base_price.toString()));
         const minPrice = Math.floor(Math.min(...prices));
         const maxPrice = Math.ceil(Math.max(...prices));
         setPriceRange([minPrice, maxPrice]);
@@ -191,7 +191,7 @@ export default function ShopPage() {
   // Get price range from products
   const priceRangeBounds = useMemo(() => {
     if (allProducts.length === 0) return [0, 100000];
-    const prices = allProducts.map(p => parseFloat(p.base_price.toString()));
+    const prices = allProducts.map((p: Product) => parseFloat(p.base_price.toString()));
     return [Math.floor(Math.min(...prices)), Math.ceil(Math.max(...prices))];
   }, [allProducts]);
 

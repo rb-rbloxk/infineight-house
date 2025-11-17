@@ -36,6 +36,7 @@ import {
   Mail,
   Calendar,
   XCircle,
+  X,
   Activity,
   DollarSign,
   Package2,
