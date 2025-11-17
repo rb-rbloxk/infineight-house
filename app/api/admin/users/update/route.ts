@@ -3,21 +3,29 @@ import { createClient } from '@supabase/supabase-js';
 
 // Create admin client with service role for bypassing RLS
 const getSupabaseAdmin = () => {
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-    throw new Error('Supabase URL is not configured');
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  
+  if (!supabaseUrl || !serviceRoleKey) {
+    return null;
   }
-  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    throw new Error('Supabase service role key is not configured');
-  }
+  
   return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY
+    supabaseUrl,
+    serviceRoleKey
   );
 };
 
 export async function PATCH(request: NextRequest) {
   try {
     const supabaseAdmin = getSupabaseAdmin();
+    
+    if (!supabaseAdmin) {
+      return NextResponse.json(
+        { error: 'Supabase is not configured' },
+        { status: 500 }
+      );
+    }
     
     const { userId, isAdmin } = await request.json();
 

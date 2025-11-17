@@ -150,6 +150,20 @@ interface Design {
   };
 }
 
+interface Theme {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  is_active: boolean;
+  parent_category: string;
+  created_at: string;
+  updated_at: string;
+  expires_at: string | null;
+  created_by: string | null;
+  product_count?: number;
+}
+
 interface AnalyticsData {
   totalUsers: number;
   totalOrders: number;
@@ -191,6 +205,7 @@ function AdminDashboardContent() {
   const [enquiries, setEnquiries] = useState<CorporateEnquiry[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [designs, setDesigns] = useState<Design[]>([]);
+  const [themes, setThemes] = useState<Theme[]>([]);
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [stats, setStats] = useState<DashboardStats>({
     totalProducts: 0,
@@ -206,6 +221,7 @@ function AdminDashboardContent() {
     name: '',
     description: '',
     categories: [] as string[],
+    themeId: '' as string | null,
     basePrice: '',
     availableColors: [] as string[],
     availableSizes: [] as string[],
@@ -217,6 +233,15 @@ function AdminDashboardContent() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState('all');
+  
+  // Theme management state
+  const [editingTheme, setEditingTheme] = useState<Theme | null>(null);
+  const [themeForm, setThemeForm] = useState({
+    name: '',
+    description: '',
+    expires_at: '',
+    is_active: true,
+  });
   
   // Order management state
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
@@ -240,6 +265,7 @@ function AdminDashboardContent() {
     'Men\'s Apparel',
     'Women\'s Apparel',
     'Unisex & Custom Wear',
+    'Theme based',
     'Gifting & Hampers',
     'Chocolates & Sweets',
     'Mugs, Bottles & Drinkware',
@@ -291,7 +317,7 @@ function AdminDashboardContent() {
   const loadDashboardData = async () => {
     try {
       // Use Promise.all to fetch all data in parallel for faster loading
-      const [productsResult, ordersResult, enquiriesResult, usersResult, designsResult] = await Promise.all([
+      const [productsResult, ordersResult, enquiriesResult, usersResult, designsResult, themesResult] = await Promise.all([
         // Fetch products from database
         supabase
           .from('products')
@@ -330,6 +356,12 @@ function AdminDashboardContent() {
             products:product_id(name)
           `)
           .eq('is_saved', true)
+          .order('created_at', { ascending: false }),
+        
+        // Fetch themes from database
+        supabase
+          .from('themes')
+          .select('*')
           .order('created_at', { ascending: false })
       ]);
 
@@ -381,6 +413,25 @@ function AdminDashboardContent() {
       // Handle designs
       if (designsResult.error) throw designsResult.error;
       setDesigns(designsResult.data || []);
+
+      // Handle themes - get product count separately
+      if (themesResult.error) throw themesResult.error;
+      const themesData = themesResult.data || [];
+      
+      // Get product counts for each theme
+      const themesWithCount = await Promise.all(
+        themesData.map(async (theme: Theme) => {
+          const { count } = await supabase
+            .from('products')
+            .select('*', { count: 'exact', head: true })
+            .eq('theme_id', theme.id);
+          return {
+            ...theme,
+            product_count: count || 0,
+          };
+        })
+      );
+      setThemes(themesWithCount);
 
       // Calculate analytics and stats in parallel
       const [analyticsData, statsData] = await Promise.all([
@@ -606,6 +657,10 @@ function AdminDashboardContent() {
       toast.error('At least one category is required');
       return;
     }
+    if (productForm.categories.includes('Theme based') && !productForm.themeId) {
+      toast.error('Theme is required when "Theme based" category is selected');
+      return;
+    }
     if (!productForm.basePrice || parseFloat(productForm.basePrice) <= 0) {
       toast.error('Base Price must be greater than 0');
       return;
@@ -632,6 +687,7 @@ function AdminDashboardContent() {
           slug: productForm.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''),
           description: productForm.description || '',
           category: productForm.categories[0], // Use first selected category
+          theme_id: productForm.themeId || null,
           base_price: parseFloat(productForm.basePrice),
           base_image_url: baseImageUrl,
           image_urls: imageUrls,
@@ -653,6 +709,7 @@ function AdminDashboardContent() {
         name: '',
         description: '',
         categories: [],
+        themeId: null,
         basePrice: '',
         availableColors: [],
         availableSizes: [],
@@ -680,6 +737,7 @@ function AdminDashboardContent() {
       name: product.name,
       description: product.description,
       categories: [product.category], // Convert single category to array
+      themeId: (product as any).theme_id || null,
       basePrice: product.base_price.toString(),
       availableColors: product.available_colors,
       availableSizes: product.available_sizes,
@@ -705,6 +763,7 @@ function AdminDashboardContent() {
           slug: productForm.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''),
           description: productForm.description || '',
           category: productForm.categories[0], // Use first selected category
+          theme_id: productForm.themeId || null,
           base_price: parseFloat(productForm.basePrice),
           base_image_url: baseImageUrl,
           image_urls: imageUrls,
@@ -728,6 +787,7 @@ function AdminDashboardContent() {
         name: '',
         description: '',
         categories: [],
+        themeId: null,
         basePrice: '',
         availableColors: [],
         availableSizes: [],
@@ -880,10 +940,11 @@ function AdminDashboardContent() {
               <TabsTrigger value="products">Products</TabsTrigger>
               <TabsTrigger value="orders">Orders</TabsTrigger>
               <TabsTrigger value="enquiries">Enquiries</TabsTrigger>
+              <TabsTrigger value="themes">Themes</TabsTrigger>
               <TabsTrigger value="designs">Designs</TabsTrigger>
               <TabsTrigger value="users">Users</TabsTrigger>
               <TabsTrigger value="analytics">Analytics</TabsTrigger>
-        </TabsList>
+            </TabsList>
 
             {/* Products Tab */}
             <TabsContent value="products" className="space-y-6">
@@ -918,6 +979,7 @@ function AdminDashboardContent() {
                         <SelectItem value="Men's Apparel">👔 Men's Apparel</SelectItem>
                         <SelectItem value="Women's Apparel">👚 Women's Apparel</SelectItem>
                         <SelectItem value="Unisex & Custom Wear">👕 Unisex & Custom Wear</SelectItem>
+                        <SelectItem value="Theme based">🎨 Theme based</SelectItem>
                         <SelectItem value="Gifting & Hampers">🎁 Gifting & Hampers</SelectItem>
                         <SelectItem value="Chocolates & Sweets">🍫 Chocolates & Sweets</SelectItem>
                         <SelectItem value="Mugs, Bottles & Drinkware">☕ Mugs, Bottles & Drinkware</SelectItem>
@@ -995,6 +1057,44 @@ function AdminDashboardContent() {
                           </div>
                           <p className="text-xs text-muted-foreground mt-1">Select one or more categories. First selected will be the primary category.</p>
                         </div>
+                        
+                        {/* Theme Selection - Only show if "Theme based" category is selected */}
+                        {productForm.categories.includes('Theme based') && (
+                          <div>
+                            <Label className="text-foreground">Theme *</Label>
+                            <Select
+                              value={productForm.themeId || ''}
+                              onValueChange={(value) => setProductForm({ ...productForm, themeId: value || null })}
+                            >
+                              <SelectTrigger className="bg-background border-border mt-1">
+                                <SelectValue placeholder="Select a theme" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="">None</SelectItem>
+                                {themes
+                                  .filter(theme => theme.is_active)
+                                  .map((theme) => (
+                                    <SelectItem key={theme.id} value={theme.id}>
+                                      {theme.name}
+                                      {theme.expires_at && (
+                                        <span className="text-xs text-muted-foreground ml-2">
+                                          (Expires: {new Date(theme.expires_at).toLocaleDateString()})
+                                        </span>
+                                      )}
+                                    </SelectItem>
+                                  ))}
+                              </SelectContent>
+                            </Select>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Select a theme for this product. Create themes in the Themes tab.
+                            </p>
+                            {!productForm.themeId && productForm.categories.includes('Theme based') && (
+                              <p className="text-xs text-yellow-600 mt-1">
+                                ⚠️ Theme is required when "Theme based" category is selected.
+                              </p>
+                            )}
+                          </div>
+                        )}
                 </div>
 
                       {/* Additional Fields */}
@@ -1854,6 +1954,293 @@ function AdminDashboardContent() {
                       ))
                     )}
                   </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* Themes Tab */}
+            <TabsContent value="themes" className="space-y-6">
+              <Card className="bg-card border-border">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="text-primary">Theme Management</CardTitle>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Create and manage theme-based sub-categories (e.g., Movie themes, Lifestyle themes)
+                      </p>
+                    </div>
+                    <Button
+                      onClick={() => {
+                        setEditingTheme(null);
+                        setThemeForm({
+                          name: '',
+                          description: '',
+                          expires_at: '',
+                          is_active: true,
+                        });
+                      }}
+                      className="bg-primary hover:bg-primary/90"
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Create Theme
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {editingTheme === null && themeForm.name === '' ? (
+                    <div className="space-y-4">
+                      {themes.length === 0 ? (
+                        <div className="text-center py-12">
+                          <Package className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
+                          <h3 className="text-xl font-semibold text-foreground mb-2">No Themes Yet</h3>
+                          <p className="text-muted-foreground mb-4">
+                            Create your first theme to organize products by events, movies, or lifestyle categories.
+                          </p>
+                          <Button
+                            onClick={() => {
+                              setThemeForm({
+                                name: '',
+                                description: '',
+                                expires_at: '',
+                                is_active: true,
+                              });
+                            }}
+                            className="bg-primary hover:bg-primary/90"
+                          >
+                            <Plus className="h-4 w-4 mr-2" />
+                            Create First Theme
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {themes.map((theme) => (
+                            <Card key={theme.id} className="bg-secondary border-border">
+                              <CardContent className="p-4">
+                                <div className="flex items-start justify-between mb-3">
+                                  <div className="flex-1">
+                                    <h3 className="font-semibold text-foreground text-lg mb-1">{theme.name}</h3>
+                                    {theme.description && (
+                                      <p className="text-sm text-muted-foreground mb-2">{theme.description}</p>
+                                    )}
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <Badge variant={theme.is_active ? 'default' : 'secondary'} className="text-xs">
+                                        {theme.is_active ? 'Active' : 'Inactive'}
+                                      </Badge>
+                                      <Badge variant="outline" className="text-xs">
+                                        {theme.product_count || 0} {theme.product_count === 1 ? 'product' : 'products'}
+                                      </Badge>
+                                      {theme.expires_at && (
+                                        <Badge variant="outline" className="text-xs">
+                                          Expires: {new Date(theme.expires_at).toLocaleDateString()}
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="flex gap-2 mt-4">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setEditingTheme(theme);
+                                      setThemeForm({
+                                        name: theme.name,
+                                        description: theme.description || '',
+                                        expires_at: theme.expires_at ? new Date(theme.expires_at).toISOString().split('T')[0] : '',
+                                        is_active: theme.is_active,
+                                      });
+                                    }}
+                                    className="flex-1"
+                                  >
+                                    <Edit className="h-4 w-4 mr-1" />
+                                    Edit
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={async () => {
+                                      if (confirm(`Delete "${theme.name}"? This will also delete all ${theme.product_count || 0} products under this theme.`)) {
+                                        try {
+                                          const { error } = await supabase
+                                            .from('themes')
+                                            .delete()
+                                            .eq('id', theme.id);
+                                          
+                                          if (error) throw error;
+                                          
+                                          toast.success('Theme deleted successfully');
+                                          loadDashboardData();
+                                        } catch (error: any) {
+                                          toast.error('Failed to delete theme: ' + error.message);
+                                        }
+                                      }
+                                    }}
+                                    className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-lg font-semibold text-foreground">
+                          {editingTheme ? 'Edit Theme' : 'Create New Theme'}
+                        </h3>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setEditingTheme(null);
+                            setThemeForm({
+                              name: '',
+                              description: '',
+                              expires_at: '',
+                              is_active: true,
+                            });
+                          }}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      
+                      <div className="space-y-4">
+                        <div>
+                          <Label htmlFor="theme-name" className="text-foreground">Theme Name *</Label>
+                          <Input
+                            id="theme-name"
+                            value={themeForm.name}
+                            onChange={(e) => setThemeForm({ ...themeForm, name: e.target.value })}
+                            placeholder="e.g., Varanasi Movie, Bikers, Adventure Seeks"
+                            className="bg-background border-border text-foreground mt-1"
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Name of the theme (e.g., movie name, lifestyle category)
+                          </p>
+                        </div>
+
+                        <div>
+                          <Label htmlFor="theme-description" className="text-foreground">Description</Label>
+                          <Textarea
+                            id="theme-description"
+                            value={themeForm.description}
+                            onChange={(e) => setThemeForm({ ...themeForm, description: e.target.value })}
+                            placeholder="Brief description of this theme..."
+                            rows={3}
+                            className="bg-background border-border text-foreground mt-1"
+                          />
+                        </div>
+
+                        <div>
+                          <Label htmlFor="theme-expires" className="text-foreground">Expiry Date (Optional)</Label>
+                          <Input
+                            id="theme-expires"
+                            type="date"
+                            value={themeForm.expires_at}
+                            onChange={(e) => setThemeForm({ ...themeForm, expires_at: e.target.value })}
+                            className="bg-background border-border text-foreground mt-1"
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Set an expiry date for time-limited themes (e.g., movie releases, events)
+                          </p>
+                        </div>
+
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="theme-active"
+                            checked={themeForm.is_active}
+                            onCheckedChange={(checked) => setThemeForm({ ...themeForm, is_active: checked as boolean })}
+                          />
+                          <Label htmlFor="theme-active" className="text-foreground cursor-pointer">
+                            Theme is active
+                          </Label>
+                        </div>
+
+                        <div className="flex gap-2">
+                          <Button
+                            onClick={async () => {
+                              if (!themeForm.name.trim()) {
+                                toast.error('Theme name is required');
+                                return;
+                              }
+
+                              try {
+                                const slug = themeForm.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+                                
+                                if (editingTheme) {
+                                  // Update existing theme
+                                  const { error } = await supabase
+                                    .from('themes')
+                                    .update({
+                                      name: themeForm.name,
+                                      slug: slug,
+                                      description: themeForm.description || null,
+                                      expires_at: themeForm.expires_at || null,
+                                      is_active: themeForm.is_active,
+                                      updated_at: new Date().toISOString(),
+                                    })
+                                    .eq('id', editingTheme.id);
+
+                                  if (error) throw error;
+                                  toast.success('Theme updated successfully');
+                                } else {
+                                  // Create new theme
+                                  const { error } = await supabase
+                                    .from('themes')
+                                    .insert({
+                                      name: themeForm.name,
+                                      slug: slug,
+                                      description: themeForm.description || null,
+                                      expires_at: themeForm.expires_at || null,
+                                      is_active: themeForm.is_active,
+                                      parent_category: 'Theme based',
+                                      created_by: user?.id || null,
+                                    });
+
+                                  if (error) throw error;
+                                  toast.success('Theme created successfully');
+                                }
+
+                                setEditingTheme(null);
+                                setThemeForm({
+                                  name: '',
+                                  description: '',
+                                  expires_at: '',
+                                  is_active: true,
+                                });
+                                loadDashboardData();
+                              } catch (error: any) {
+                                toast.error('Failed to save theme: ' + error.message);
+                              }
+                            }}
+                            className="bg-primary hover:bg-primary/90"
+                          >
+                            <Save className="h-4 w-4 mr-2" />
+                            {editingTheme ? 'Update Theme' : 'Create Theme'}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            onClick={() => {
+                              setEditingTheme(null);
+                              setThemeForm({
+                                name: '',
+                                description: '',
+                                expires_at: '',
+                                is_active: true,
+                              });
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>

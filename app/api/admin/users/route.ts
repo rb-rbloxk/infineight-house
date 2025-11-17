@@ -4,18 +4,30 @@ import { createClient } from '@supabase/supabase-js';
 // Create admin client with service role for bypassing RLS
 // Fallback to anon key if service role key is not available
 const getSupabaseAdmin = () => {
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-    throw new Error('Supabase URL is not configured');
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  
+  if (!supabaseUrl) {
+    return null;
   }
+  
   return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+    supabaseUrl,
+    serviceRoleKey || anonKey || ''
   );
 };
 
 export async function GET(request: NextRequest) {
   try {
     const supabaseAdmin = getSupabaseAdmin();
+    
+    if (!supabaseAdmin) {
+      return NextResponse.json(
+        { error: 'Supabase is not configured' },
+        { status: 500 }
+      );
+    }
     
     // Fetch all users using service role (bypasses RLS)
     const { data: users, error } = await supabaseAdmin

@@ -16,9 +16,12 @@ import { Loader2, CreditCard, MapPin, Package, Shield, Truck, ArrowLeft, Home, P
 import { toast } from 'sonner';
 import Link from 'next/link';
 import { loadStripe } from '@stripe/stripe-js';
+import Script from 'next/script';
 
 // Initialize Stripe
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
+
+type PaymentGateway = 'stripe' | 'razorpay' | 'phonepe';
 
 interface Address {
   id: string;
@@ -61,6 +64,8 @@ function CheckoutPageContent() {
     pincode: '',
     notes: '',
   });
+  const [selectedPaymentGateway, setSelectedPaymentGateway] = useState<PaymentGateway>('razorpay');
+  const [razorpayLoaded, setRazorpayLoaded] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -283,43 +288,175 @@ function CheckoutPageContent() {
 
       if (itemsError) throw itemsError;
 
-      // Create Stripe checkout session
-      const response = await fetch('/api/create-checkout-session', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          items: cartItems,
-          customerEmail: user!.email,
-          orderId: order.id,
-          metadata: {
-            userId: user!.id,
-            orderNumber: orderNumber,
-            shipping: getShippingCost(),
-            discount: getDiscount(),
-            giftWrapFee: getGiftWrapFee(),
-            couponCode: checkoutData?.appliedCoupon?.code,
-          },
-        }),
-      });
-
-      const { sessionId, url, error: stripeError } = await response.json();
-
-      if (stripeError) {
-        throw new Error(stripeError);
-      }
-
-      // Redirect to Stripe Checkout
-      if (url) {
-        window.location.href = url;
-      } else {
-        throw new Error('Failed to create checkout session');
+      // Handle payment based on selected gateway
+      if (selectedPaymentGateway === 'stripe') {
+        await handleStripePayment(order, orderNumber);
+      } else if (selectedPaymentGateway === 'razorpay') {
+        await handleRazorpayPayment(order, orderNumber);
+      } else if (selectedPaymentGateway === 'phonepe') {
+        await handlePhonePePayment(order, orderNumber);
       }
     } catch (error: any) {
       console.error('Checkout error:', error);
       toast.error(error.message || 'Failed to proceed to payment. Please try again.');
       setSubmitting(false);
+    }
+  };
+
+  const handleStripePayment = async (order: any, orderNumber: string) => {
+    const response = await fetch('/api/create-checkout-session', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        items: cartItems,
+        customerEmail: user!.email,
+        orderId: order.id,
+        metadata: {
+          userId: user!.id,
+          orderNumber: orderNumber,
+          shipping: getShippingCost(),
+          discount: getDiscount(),
+          giftWrapFee: getGiftWrapFee(),
+          couponCode: checkoutData?.appliedCoupon?.code,
+        },
+      }),
+    });
+
+    const { sessionId, url, error: stripeError } = await response.json();
+
+    if (stripeError) {
+      throw new Error(stripeError);
+    }
+
+    if (url) {
+      window.location.href = url;
+    } else {
+      throw new Error('Failed to create checkout session');
+    }
+  };
+
+  const handleRazorpayPayment = async (order: any, orderNumber: string) => {
+    if (!razorpayLoaded) {
+      toast.error('Razorpay is still loading. Please wait a moment.');
+      setSubmitting(false);
+      return;
+    }
+
+    const response = await fetch('/api/payments/razorpay/create-order', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        amount: calculateTotal(),
+        currency: 'INR',
+        orderId: order.id,
+        customerEmail: user!.email,
+        customerName: formData.fullName,
+        customerPhone: formData.phone,
+        metadata: {
+          userId: user!.id,
+          orderNumber: orderNumber,
+        },
+      }),
+    });
+
+    const data = await response.json();
+
+    if (data.error) {
+      throw new Error(data.error);
+    }
+
+    // Initialize Razorpay checkout
+    const options = {
+      key: data.key,
+      amount: data.amount,
+      currency: data.currency,
+      name: data.name,
+      description: data.description,
+      order_id: data.orderId,
+      prefill: data.prefill,
+      theme: data.theme,
+      handler: async function (response: any) {
+        // Verify payment
+        const verifyResponse = await fetch('/api/payments/razorpay/verify', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            razorpay_order_id: response.razorpay_order_id,
+            razorpay_payment_id: response.razorpay_payment_id,
+            razorpay_signature: response.razorpay_signature,
+            orderId: order.id,
+          }),
+        });
+
+        const verifyData = await verifyResponse.json();
+
+        if (verifyData.success) {
+          // Clear cart
+          await supabase.from('cart_items').delete().eq('user_id', user!.id);
+          sessionStorage.removeItem('checkoutData');
+          
+          // Redirect to success page
+          window.location.href = `/payment/success?order_id=${order.id}&gateway=razorpay`;
+        } else {
+          toast.error('Payment verification failed');
+          setSubmitting(false);
+        }
+      },
+      modal: {
+        ondismiss: function() {
+          setSubmitting(false);
+          toast.info('Payment cancelled');
+        },
+      },
+    };
+
+    const razorpay = new (window as any).Razorpay(options);
+    razorpay.open();
+  };
+
+  const handlePhonePePayment = async (order: any, orderNumber: string) => {
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
+    const redirectUrl = `${siteUrl}/payment/success?order_id=${order.id}&gateway=phonepe`;
+
+    const response = await fetch('/api/payments/phonepe/create-payment', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        amount: calculateTotal(),
+        orderId: orderNumber,
+        customerEmail: user!.email,
+        customerPhone: formData.phone,
+        redirectUrl: redirectUrl,
+        metadata: {
+          userId: user!.id,
+          orderId: order.id,
+        },
+      }),
+    });
+
+    const data = await response.json();
+
+    if (data.error) {
+      throw new Error(data.error);
+    }
+
+    if (data.redirectUrl) {
+      // Clear cart before redirect
+      await supabase.from('cart_items').delete().eq('user_id', user!.id);
+      sessionStorage.removeItem('checkoutData');
+      
+      // Redirect to PhonePe payment page
+      window.location.href = data.redirectUrl;
+    } else {
+      throw new Error('Failed to create payment link');
     }
   };
 
@@ -561,12 +698,111 @@ function CheckoutPageContent() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  {/* Payment Gateway Selection */}
+                  <div className="space-y-3">
+                    <Label className="text-foreground font-semibold">Choose Payment Gateway</Label>
+                    
+                    {/* Razorpay Option */}
+                    <div
+                      onClick={() => setSelectedPaymentGateway('razorpay')}
+                      className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
+                        selectedPaymentGateway === 'razorpay'
+                          ? 'border-primary bg-primary/5'
+                          : 'border-border bg-background hover:border-primary/50'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div
+                            className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                              selectedPaymentGateway === 'razorpay'
+                                ? 'border-primary bg-primary'
+                                : 'border-border'
+                            }`}
+                          >
+                            {selectedPaymentGateway === 'razorpay' && (
+                              <div className="w-2 h-2 rounded-full bg-white"></div>
+                            )}
+                          </div>
+                          <div>
+                            <h4 className="font-semibold text-foreground">Razorpay</h4>
+                            <p className="text-sm text-muted-foreground">
+                              Cards, UPI, Netbanking, Wallets & More
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-xs text-muted-foreground">Recommended</div>
+                      </div>
+                    </div>
+
+                    {/* PhonePe Option */}
+                    <div
+                      onClick={() => setSelectedPaymentGateway('phonepe')}
+                      className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
+                        selectedPaymentGateway === 'phonepe'
+                          ? 'border-primary bg-primary/5'
+                          : 'border-border bg-background hover:border-primary/50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                            selectedPaymentGateway === 'phonepe'
+                              ? 'border-primary bg-primary'
+                              : 'border-border'
+                          }`}
+                        >
+                          {selectedPaymentGateway === 'phonepe' && (
+                            <div className="w-2 h-2 rounded-full bg-white"></div>
+                          )}
+                        </div>
+                        <div>
+                          <h4 className="font-semibold text-foreground">PhonePe</h4>
+                          <p className="text-sm text-muted-foreground">
+                            UPI, Cards, Wallets & PhonePe Balance
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Stripe Option */}
+                    <div
+                      onClick={() => setSelectedPaymentGateway('stripe')}
+                      className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
+                        selectedPaymentGateway === 'stripe'
+                          ? 'border-primary bg-primary/5'
+                          : 'border-border bg-background hover:border-primary/50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                            selectedPaymentGateway === 'stripe'
+                              ? 'border-primary bg-primary'
+                              : 'border-border'
+                          }`}
+                        >
+                          {selectedPaymentGateway === 'stripe' && (
+                            <div className="w-2 h-2 rounded-full bg-white"></div>
+                          )}
+                        </div>
+                        <div>
+                          <h4 className="font-semibold text-foreground">Stripe</h4>
+                          <p className="text-sm text-muted-foreground">
+                            International Cards & Global Payments
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Security Info */}
                   <div className="flex items-start gap-3 p-4 bg-primary/5 border border-primary/20 rounded-lg">
                     <Shield className="h-5 w-5 text-primary mt-0.5 flex-shrink-0" />
                     <div>
-                      <h4 className="font-semibold text-foreground mb-1">Secure Payment with Stripe</h4>
+                      <h4 className="font-semibold text-foreground mb-1">Secure Payment</h4>
                       <p className="text-sm text-muted-foreground">
-                        Your payment will be processed securely through Stripe. You'll be redirected to complete your payment after clicking "Place Order".
+                        Your payment will be processed securely. You'll be redirected to complete your payment after clicking "Place Order".
                       </p>
                     </div>
                   </div>
@@ -574,7 +810,7 @@ function CheckoutPageContent() {
                   <div className="space-y-3">
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <CreditCard className="h-4 w-4 text-primary" />
-                      <span>All major credit and debit cards accepted</span>
+                      <span>All major payment methods accepted</span>
                     </div>
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Shield className="h-4 w-4 text-primary" />
@@ -585,13 +821,15 @@ function CheckoutPageContent() {
                       <span>SSL encrypted transaction</span>
                     </div>
                   </div>
-
-                  <div className="flex items-center gap-2 pt-2">
-                    <span className="text-xs text-muted-foreground">Powered by</span>
-                    <span className="font-semibold text-primary">Stripe</span>
-                  </div>
                 </CardContent>
               </Card>
+              
+              {/* Razorpay Script */}
+              <Script
+                src="https://checkout.razorpay.com/v1/checkout.js"
+                onLoad={() => setRazorpayLoaded(true)}
+                strategy="lazyOnload"
+              />
             </div>
 
             {/* Order Summary */}
