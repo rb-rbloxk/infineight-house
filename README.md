@@ -64,18 +64,94 @@ STRIPE_WEBHOOK_SECRET=whsec_...
 
 ## 🛠️ Local Development
 
+### 1. Clone and Install
+
 ```bash
+# Clone the repository
+git clone <your-repo-url>
+cd infineight-house
+
 # Install dependencies
 npm install
+```
 
-# Run development server
+### 2. Set Up Environment Variables
+
+```bash
+# Copy the example environment file
+cp .env.local.example .env.local
+
+# Edit .env.local with your actual values
+# Get Supabase credentials from: https://app.supabase.com/project/_/settings/api
+```
+
+**Required Environment Variables for Local Development:**
+
+```env
+# Supabase (Required)
+NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
+
+# Site URL (use localhost for local dev)
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
+
+# Stripe (Required for checkout)
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+```
+
+### 3. Configure Supabase for Localhost
+
+1. **Add Localhost to Allowed URLs:**
+   - Go to Supabase Dashboard → Authentication → URL Configuration
+   - Add `http://localhost:3000` to Site URL
+   - Add `http://localhost:3000/auth/callback` to Redirect URLs
+
+2. **Enable Email Auth (if not already enabled):**
+   - Dashboard → Authentication → Providers → Email
+   - Enable "Confirm email" (optional for local dev)
+
+### 4. Run Development Server
+
+```bash
+# Start the development server
 npm run dev
 
+# The app will be available at http://localhost:3000
+```
+
+### 5. Test Locally
+
+- ✅ Visit `http://localhost:3000`
+- ✅ Test authentication (sign up/login)
+- ✅ Test product browsing
+- ✅ Test cart functionality
+- ✅ Test admin dashboard (if you have admin access)
+
+### 6. Build for Production
+
+```bash
 # Build for production
 npm run build
 
-# Start production server
+# Start production server locally
 npm start
+```
+
+### 7. Commit to GitHub
+
+**Important:** Never commit `.env.local` to GitHub. It's already in `.gitignore`.
+
+```bash
+# Check what will be committed
+git status
+
+# Commit your changes
+git add .
+git commit -m "Your commit message"
+git push
 ```
 
 ---

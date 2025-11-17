@@ -237,6 +237,7 @@ function AdminDashboardContent() {
   
   // Theme management state
   const [editingTheme, setEditingTheme] = useState<Theme | null>(null);
+  const [showThemeForm, setShowThemeForm] = useState(false);
   const [themeForm, setThemeForm] = useState({
     name: '',
     description: '',
@@ -1064,14 +1065,14 @@ function AdminDashboardContent() {
                           <div>
                             <Label className="text-foreground">Theme *</Label>
                             <Select
-                              value={productForm.themeId || ''}
-                              onValueChange={(value) => setProductForm({ ...productForm, themeId: value || null })}
+                              value={productForm.themeId || undefined}
+                              onValueChange={(value) => setProductForm({ ...productForm, themeId: value === 'none' ? null : value })}
                             >
                               <SelectTrigger className="bg-background border-border mt-1">
                                 <SelectValue placeholder="Select a theme" />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="">None</SelectItem>
+                                <SelectItem value="none">None</SelectItem>
                                 {themes
                                   .filter(theme => theme.is_active)
                                   .map((theme) => (
@@ -1973,6 +1974,7 @@ function AdminDashboardContent() {
                     <Button
                       onClick={() => {
                         setEditingTheme(null);
+                        setShowThemeForm(true);
                         setThemeForm({
                           name: '',
                           description: '',
@@ -1988,7 +1990,7 @@ function AdminDashboardContent() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  {editingTheme === null && themeForm.name === '' ? (
+                  {!showThemeForm && editingTheme === null ? (
                     <div className="space-y-4">
                       {themes.length === 0 ? (
                         <div className="text-center py-12">
@@ -1999,6 +2001,8 @@ function AdminDashboardContent() {
                           </p>
                           <Button
                             onClick={() => {
+                              setShowThemeForm(true);
+                              setEditingTheme(null);
                               setThemeForm({
                                 name: '',
                                 description: '',
@@ -2044,6 +2048,7 @@ function AdminDashboardContent() {
                                     size="sm"
                                     onClick={() => {
                                       setEditingTheme(theme);
+                                      setShowThemeForm(true);
                                       setThemeForm({
                                         name: theme.name,
                                         description: theme.description || '',
@@ -2098,6 +2103,7 @@ function AdminDashboardContent() {
                           size="sm"
                           onClick={() => {
                             setEditingTheme(null);
+                            setShowThemeForm(false);
                             setThemeForm({
                               name: '',
                               description: '',
@@ -2208,6 +2214,7 @@ function AdminDashboardContent() {
                                 }
 
                                 setEditingTheme(null);
+                                setShowThemeForm(false);
                                 setThemeForm({
                                   name: '',
                                   description: '',
@@ -2228,6 +2235,7 @@ function AdminDashboardContent() {
                             variant="outline"
                             onClick={() => {
                               setEditingTheme(null);
+                              setShowThemeForm(false);
                               setThemeForm({
                                 name: '',
                                 description: '',

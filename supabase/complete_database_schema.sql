@@ -1,10 +1,13 @@
 /*
-  # Infineight E-Commerce Complete Database Schema
-  This file contains all migrations combined for easy setup
+  # Infineight Complete Database Schema
+  This file contains the complete database setup including all tables, migrations, and configurations.
+  Run this file in Supabase SQL Editor to set up the entire database.
+  
+  IMPORTANT: Run this file in order. If you encounter errors, check if tables already exist.
 */
 
 -- ============================================
--- 1. MAIN SCHEMA (20251018155600_create_ecommerce_schema.sql)
+-- 1. MAIN SCHEMA - Core Tables
 -- ============================================
 
 -- Create profiles table
@@ -286,6 +289,9 @@ UPDATE products
 SET image_urls = ARRAY['/images/products/placeholder.png'] 
 WHERE image_urls IS NULL OR array_length(image_urls, 1) IS NULL;
 
+-- Add comment to the column
+COMMENT ON COLUMN products.image_urls IS 'Array of image URLs for the product. First image is typically the primary image.';
+
 -- ============================================
 -- 3. CREATE WISHLIST TABLE
 -- ============================================
@@ -395,6 +401,12 @@ BEGIN
     END IF;
 END $$;
 
+-- Add comments
+COMMENT ON TABLE addresses IS 'User address management table for shipping addresses';
+COMMENT ON COLUMN addresses.user_id IS 'Reference to auth.users table';
+COMMENT ON COLUMN addresses.is_default IS 'Indicates if this is the default shipping address for the user';
+COMMENT ON COLUMN addresses.pincode IS 'Indian postal code (6 digits)';
+
 -- ============================================
 -- 5. ADD STRIPE PAYMENT ID
 -- ============================================
@@ -405,8 +417,150 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS stripe_payment_id TEXT;
 -- Add index for faster lookups
 CREATE INDEX IF NOT EXISTS idx_orders_stripe_payment_id ON orders(stripe_payment_id);
 
+-- Add comment
+COMMENT ON COLUMN orders.stripe_payment_id IS 'Stripe payment intent ID for tracking payments';
+
 -- ============================================
--- 6. FUNCTIONS AND TRIGGERS
+-- 6. ADD ATTACHMENTS TO CORPORATE ENQUIRIES
+-- ============================================
+
+-- Add attachments field to corporate_enquiries table
+ALTER TABLE corporate_enquiries 
+ADD COLUMN IF NOT EXISTS attachments jsonb DEFAULT '[]'::jsonb;
+
+-- Add user_id field if it doesn't exist (for tracking who submitted)
+ALTER TABLE corporate_enquiries 
+ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES profiles(id) ON DELETE SET NULL;
+
+-- Add event_date field if it doesn't exist (for bulk calculator)
+ALTER TABLE corporate_enquiries 
+ADD COLUMN IF NOT EXISTS event_date date;
+
+-- Add order_details field if it doesn't exist (for bulk calculator order details)
+ALTER TABLE corporate_enquiries 
+ADD COLUMN IF NOT EXISTS order_details jsonb;
+
+-- Add requirements field if it doesn't exist (for additional requirements)
+ALTER TABLE corporate_enquiries 
+ADD COLUMN IF NOT EXISTS requirements text;
+
+-- Create index on attachments for better query performance
+CREATE INDEX IF NOT EXISTS idx_corporate_enquiries_attachments 
+ON corporate_enquiries USING GIN (attachments);
+
+-- Update RLS policy to allow users to view their own enquiries
+DROP POLICY IF EXISTS "Users can view own enquiries" ON corporate_enquiries;
+CREATE POLICY "Users can view own enquiries"
+  ON corporate_enquiries FOR SELECT
+  TO authenticated
+  USING (
+    user_id = auth.uid() 
+    OR 
+    EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE profiles.id = auth.uid() 
+      AND profiles.is_admin = true
+    )
+  );
+
+-- ============================================
+-- 7. CREATE THEMES TABLE
+-- ============================================
+
+-- Create themes table for dynamic sub-categories under "Theme based"
+CREATE TABLE IF NOT EXISTS themes (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name text NOT NULL UNIQUE,
+  slug text NOT NULL UNIQUE,
+  description text,
+  is_active boolean DEFAULT true,
+  parent_category text DEFAULT 'Theme based',
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now(),
+  expires_at timestamptz, -- Optional: for time-limited themes (events, movies, etc.)
+  created_by uuid REFERENCES profiles(id) ON DELETE SET NULL
+);
+
+-- Add theme_id to products table
+ALTER TABLE products
+ADD COLUMN IF NOT EXISTS theme_id uuid REFERENCES themes(id) ON DELETE CASCADE;
+
+-- Create index for faster queries
+CREATE INDEX IF NOT EXISTS idx_products_theme_id ON products(theme_id);
+CREATE INDEX IF NOT EXISTS idx_themes_is_active ON themes(is_active);
+CREATE INDEX IF NOT EXISTS idx_themes_parent_category ON themes(parent_category);
+
+-- Enable RLS on themes table
+ALTER TABLE themes ENABLE ROW LEVEL SECURITY;
+
+-- Anyone can view active themes
+CREATE POLICY "Anyone can view active themes"
+  ON themes FOR SELECT
+  TO authenticated, anon
+  USING (is_active = true);
+
+-- Admins can manage all themes
+CREATE POLICY "Admins can manage themes"
+  ON themes FOR ALL
+  TO authenticated
+  USING (EXISTS (SELECT 1 FROM profiles WHERE profiles.id = auth.uid() AND profiles.is_admin = true))
+  WITH CHECK (EXISTS (SELECT 1 FROM profiles WHERE profiles.id = auth.uid() AND profiles.is_admin = true));
+
+-- Function to automatically update updated_at timestamp
+CREATE OR REPLACE FUNCTION update_themes_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger to update updated_at on themes
+DROP TRIGGER IF EXISTS update_themes_updated_at ON themes;
+CREATE TRIGGER update_themes_updated_at
+  BEFORE UPDATE ON themes
+  FOR EACH ROW
+  EXECUTE FUNCTION update_themes_updated_at();
+
+-- Function to generate slug from name
+CREATE OR REPLACE FUNCTION generate_theme_slug(theme_name text)
+RETURNS text AS $$
+BEGIN
+  RETURN lower(regexp_replace(theme_name, '[^a-zA-Z0-9]+', '-', 'g'));
+END;
+$$ LANGUAGE plpgsql;
+
+-- ============================================
+-- 8. ADD DESIGN IMAGES AND INSTRUCTIONS
+-- ============================================
+
+-- Add fields to designs table for client instructions and image URLs
+ALTER TABLE designs 
+ADD COLUMN IF NOT EXISTS client_instructions TEXT,
+ADD COLUMN IF NOT EXISTS png_image_url TEXT,
+ADD COLUMN IF NOT EXISTS pdf_image_url TEXT;
+
+-- Add comments to the new columns
+COMMENT ON COLUMN designs.client_instructions IS 'Instructions or notes provided by the client for the design';
+COMMENT ON COLUMN designs.png_image_url IS 'URL to the PNG image of the design';
+COMMENT ON COLUMN designs.pdf_image_url IS 'URL to the PDF image of the design';
+
+-- Update RLS policies to allow admins to view all designs
+DROP POLICY IF EXISTS "Admins can view all designs" ON designs;
+CREATE POLICY "Admins can view all designs"
+  ON designs FOR SELECT
+  TO authenticated
+  USING (
+    auth.uid() = user_id OR
+    EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE profiles.id = auth.uid() 
+      AND profiles.is_admin = true
+    )
+  );
+
+-- ============================================
+-- 9. FUNCTIONS AND TRIGGERS
 -- ============================================
 
 -- Create function to generate order numbers
@@ -454,56 +608,62 @@ CREATE TRIGGER update_addresses_updated_at BEFORE UPDATE ON addresses
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================
--- 7. ADMIN FUNCTIONS AND POLICIES
+-- 10. ADMIN FUNCTIONS AND POLICIES
 -- ============================================
 
--- Create additional admin policies for better security
-DO $$ 
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'profiles' AND policyname = 'Admins can view all profiles'
-    ) THEN
-        CREATE POLICY "Admins can view all profiles"
-          ON profiles FOR SELECT
-          TO authenticated
-          USING (
-            EXISTS (
-              SELECT 1 FROM profiles 
-              WHERE profiles.id = auth.uid() 
-              AND profiles.is_admin = true
-            )
-          );
-    END IF;
-END $$;
+-- Fix infinite recursion in profiles RLS policies
+-- Drop the problematic admin policies first
+DROP POLICY IF EXISTS "Admins can view all profiles" ON profiles;
+DROP POLICY IF EXISTS "Admins can update all profiles" ON profiles;
 
-DO $$ 
+-- Create a SECURITY DEFINER function to check admin status without triggering RLS
+CREATE OR REPLACE FUNCTION public.is_user_admin(check_user_id uuid DEFAULT auth.uid())
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
 BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'profiles' AND policyname = 'Admins can update all profiles'
-    ) THEN
-        CREATE POLICY "Admins can update all profiles"
-          ON profiles FOR UPDATE
-          TO authenticated
-          USING (
-            EXISTS (
-              SELECT 1 FROM profiles 
-              WHERE profiles.id = auth.uid() 
-              AND profiles.is_admin = true
-            )
-          )
-          WITH CHECK (
-            EXISTS (
-              SELECT 1 FROM profiles 
-              WHERE profiles.id = auth.uid() 
-              AND profiles.is_admin = true
-            )
-          );
-    END IF;
-END $$;
+  RETURN EXISTS (
+    SELECT 1 
+    FROM public.profiles 
+    WHERE id = check_user_id 
+    AND is_admin = true
+  );
+END;
+$$;
+
+-- Recreate admin policies using the SECURITY DEFINER function
+CREATE POLICY "Admins can view all profiles"
+  ON profiles FOR SELECT
+  TO authenticated
+  USING (
+    auth.uid() = id
+    OR
+    public.is_user_admin()
+  );
+
+CREATE POLICY "Admins can update all profiles"
+  ON profiles FOR UPDATE
+  TO authenticated
+  USING (
+    auth.uid() = id
+    OR
+    public.is_user_admin()
+  )
+  WITH CHECK (
+    auth.uid() = id
+    OR
+    public.is_user_admin()
+  );
 
 -- Create function to check if user is admin
 CREATE OR REPLACE FUNCTION is_admin(user_id uuid)
-RETURNS boolean AS $$
+RETURNS boolean 
+LANGUAGE plpgsql 
+SECURITY DEFINER
+SET search_path = public
+AS $$
 BEGIN
   RETURN EXISTS (
     SELECT 1 FROM profiles 
@@ -511,18 +671,16 @@ BEGIN
     AND is_admin = true
   );
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
 
--- Create function to promote user to admin (only existing admins can use this)
+-- Create function to promote user to admin
 CREATE OR REPLACE FUNCTION promote_to_admin(target_user_id uuid)
 RETURNS boolean AS $$
 BEGIN
-  -- Check if current user is admin
   IF NOT is_admin(auth.uid()) THEN
     RAISE EXCEPTION 'Access denied. Admin privileges required.';
   END IF;
   
-  -- Update target user to admin
   UPDATE profiles 
   SET is_admin = true, updated_at = now()
   WHERE id = target_user_id;
@@ -531,21 +689,18 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Create function to demote admin (only existing admins can use this)
+-- Create function to demote admin
 CREATE OR REPLACE FUNCTION demote_from_admin(target_user_id uuid)
 RETURNS boolean AS $$
 BEGIN
-  -- Check if current user is admin
   IF NOT is_admin(auth.uid()) THEN
     RAISE EXCEPTION 'Access denied. Admin privileges required.';
   END IF;
   
-  -- Prevent demoting yourself
   IF target_user_id = auth.uid() THEN
     RAISE EXCEPTION 'Cannot demote yourself.';
   END IF;
   
-  -- Update target user to non-admin
   UPDATE profiles 
   SET is_admin = false, updated_at = now()
   WHERE id = target_user_id;
@@ -554,7 +709,175 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- Create function to create super admin by email
+CREATE OR REPLACE FUNCTION create_super_admin(user_email text)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  user_id_to_promote uuid;
+BEGIN
+  SELECT id INTO user_id_to_promote
+  FROM auth.users
+  WHERE email = user_email;
+  
+  IF user_id_to_promote IS NULL THEN
+    RAISE EXCEPTION 'User with email % not found. Please create the user account first.', user_email;
+  END IF;
+  
+  INSERT INTO profiles (
+    id,
+    email,
+    full_name,
+    is_admin,
+    created_at,
+    updated_at
+  ) VALUES (
+    user_id_to_promote,
+    user_email,
+    COALESCE((SELECT raw_user_meta_data->>'full_name' FROM auth.users WHERE id = user_id_to_promote), 'Admin User'),
+    true,
+    now(),
+    now()
+  ) ON CONFLICT (id) DO UPDATE SET
+    is_admin = true,
+    updated_at = now();
+  
+  RETURN true;
+END;
+$$;
+
+-- ============================================
+-- 11. STORAGE SETUP
+-- ============================================
+
+-- Create storage bucket for corporate enquiries
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('corporate-uploads', 'corporate-uploads', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- Create policy to allow authenticated users to upload files
+DROP POLICY IF EXISTS "Authenticated users can upload files" ON storage.objects;
+CREATE POLICY "Authenticated users can upload files"
+ON storage.objects FOR INSERT
+TO authenticated
+WITH CHECK (
+  bucket_id = 'corporate-uploads' AND
+  (storage.foldername(name))[1] = 'corporate-enquiries'
+);
+
+-- Create policy to allow public read access
+DROP POLICY IF EXISTS "Public can view uploaded files" ON storage.objects;
+CREATE POLICY "Public can view uploaded files"
+ON storage.objects FOR SELECT
+TO public
+USING (bucket_id = 'corporate-uploads');
+
+-- Create policy to allow users to delete their own uploads
+DROP POLICY IF EXISTS "Users can delete their own uploads" ON storage.objects;
+CREATE POLICY "Users can delete their own uploads"
+ON storage.objects FOR DELETE
+TO authenticated
+USING (
+  bucket_id = 'corporate-uploads' AND
+  auth.uid()::text = (storage.foldername(name))[2]
+);
+
+-- Create policy to allow admins to manage all files
+DROP POLICY IF EXISTS "Admins can manage all files" ON storage.objects;
+CREATE POLICY "Admins can manage all files"
+ON storage.objects FOR ALL
+TO authenticated
+USING (
+  bucket_id = 'corporate-uploads' AND
+  EXISTS (
+    SELECT 1 FROM profiles 
+    WHERE profiles.id = auth.uid() 
+    AND profiles.is_admin = true
+  )
+)
+WITH CHECK (
+  bucket_id = 'corporate-uploads' AND
+  EXISTS (
+    SELECT 1 FROM profiles 
+    WHERE profiles.id = auth.uid() 
+    AND profiles.is_admin = true
+  )
+);
+
+-- Create storage bucket for design images
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('design-images', 'design-images', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- Create policy to allow authenticated users to upload design images
+DROP POLICY IF EXISTS "Authenticated users can upload design images" ON storage.objects;
+CREATE POLICY "Authenticated users can upload design images"
+ON storage.objects FOR INSERT
+TO authenticated
+WITH CHECK (
+  bucket_id = 'design-images' AND
+  (storage.foldername(name))[1] = 'designs'
+);
+
+-- Create policy to allow public read access to design images
+DROP POLICY IF EXISTS "Public can view design images" ON storage.objects;
+CREATE POLICY "Public can view design images"
+ON storage.objects FOR SELECT
+TO public
+USING (bucket_id = 'design-images');
+
+-- Create policy to allow users to delete their own design images
+DROP POLICY IF EXISTS "Users can delete their own design images" ON storage.objects;
+CREATE POLICY "Users can delete their own design images"
+ON storage.objects FOR DELETE
+TO authenticated
+USING (
+  bucket_id = 'design-images' AND
+  (
+    auth.uid()::text = (storage.foldername(name))[2] OR
+    EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE profiles.id = auth.uid() 
+      AND profiles.is_admin = true
+    )
+  )
+);
+
+-- Create policy to allow admins to manage all design images
+DROP POLICY IF EXISTS "Admins can manage all design images" ON storage.objects;
+CREATE POLICY "Admins can manage all design images"
+ON storage.objects FOR ALL
+TO authenticated
+USING (
+  bucket_id = 'design-images' AND
+  EXISTS (
+    SELECT 1 FROM profiles 
+    WHERE profiles.id = auth.uid() 
+    AND profiles.is_admin = true
+  )
+)
+WITH CHECK (
+  bucket_id = 'design-images' AND
+  EXISTS (
+    SELECT 1 FROM profiles 
+    WHERE profiles.id = auth.uid() 
+    AND profiles.is_admin = true
+  )
+);
+
 -- ============================================
 -- COMPLETE!
+-- ============================================
+-- 
+-- Next Steps:
+-- 1. Create a user account through /auth/signup
+-- 2. Run the create_super_admin function to promote a user to admin:
+--    SELECT create_super_admin('your-email@example.com');
+-- 
+-- Or use the Node.js script:
+--    node scripts/create-super-admin.js email@example.com password "Admin Name"
 -- ============================================
 

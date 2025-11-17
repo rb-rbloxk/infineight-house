@@ -4,13 +4,15 @@ import crypto from 'crypto';
 const PHONEPE_MERCHANT_ID = process.env.PHONEPE_MERCHANT_ID || '';
 const PHONEPE_SALT_KEY = process.env.PHONEPE_SALT_KEY || '';
 const PHONEPE_SALT_INDEX = process.env.PHONEPE_SALT_INDEX || '1';
-const PHONEPE_BASE_URL = process.env.PHONEPE_BASE_URL || 'https://api.phonepe.com/apis/hermes';
+const PHONEPE_BASE_URL = process.env.PHONEPE_BASE_URL;
 
-// PhonePe uses UAT and Production environments
-const isProduction = process.env.NODE_ENV === 'production';
-const phonepeUrl = isProduction
-  ? 'https://api.phonepe.com/apis/hermes'
-  : 'https://api-preprod.phonepe.com/apis/pg-sandbox';
+// PhonePe uses UAT (Test) and Production environments
+// Use PHONEPE_BASE_URL if set, otherwise determine based on environment
+const phonepeUrl = PHONEPE_BASE_URL || (
+  process.env.NODE_ENV === 'production'
+    ? 'https://api.phonepe.com/apis/hermes'
+    : 'https://api-preprod.phonepe.com/apis/pg-sandbox'
+);
 
 export async function POST(req: NextRequest) {
   try {

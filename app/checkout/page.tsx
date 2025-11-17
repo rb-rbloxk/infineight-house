@@ -304,37 +304,37 @@ function CheckoutPageContent() {
   };
 
   const handleStripePayment = async (order: any, orderNumber: string) => {
-    const response = await fetch('/api/create-checkout-session', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        items: cartItems,
-        customerEmail: user!.email,
-        orderId: order.id,
-        metadata: {
-          userId: user!.id,
-          orderNumber: orderNumber,
-          shipping: getShippingCost(),
-          discount: getDiscount(),
-          giftWrapFee: getGiftWrapFee(),
-          couponCode: checkoutData?.appliedCoupon?.code,
+      const response = await fetch('/api/create-checkout-session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-      }),
-    });
+        body: JSON.stringify({
+          items: cartItems,
+          customerEmail: user!.email,
+          orderId: order.id,
+          metadata: {
+            userId: user!.id,
+            orderNumber: orderNumber,
+            shipping: getShippingCost(),
+            discount: getDiscount(),
+            giftWrapFee: getGiftWrapFee(),
+            couponCode: checkoutData?.appliedCoupon?.code,
+          },
+        }),
+      });
 
-    const { sessionId, url, error: stripeError } = await response.json();
+      const { sessionId, url, error: stripeError } = await response.json();
 
-    if (stripeError) {
-      throw new Error(stripeError);
-    }
+      if (stripeError) {
+        throw new Error(stripeError);
+      }
 
-    if (url) {
-      window.location.href = url;
-    } else {
-      throw new Error('Failed to create checkout session');
-    }
+      if (url) {
+        window.location.href = url;
+      } else {
+        throw new Error('Failed to create checkout session');
+      }
   };
 
   const handleRazorpayPayment = async (order: any, orderNumber: string) => {
